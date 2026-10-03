@@ -488,7 +488,7 @@ async function report(id) {
       <div class="center" style="font-size:12px;font-weight:700;color:var(--primary)">${REPORT_TITLE}</div>
       <div style="height:16px"></div>
       ${kv('Job ID', job.id)}${kv('Date', fmtDate(job.reportGeneratedAt))}${kv('Property', address(job))}
-      ${job.personName ? kv('Person in charge', `${job.personName} (${job.personPhone})`) : ''}
+      ${job.personName ? kv('Person in charge', job.personName + (job.personPhone ? ` (${job.personPhone})` : '')) : ''}
       ${job.assignedTo ? kv('Completed by', job.assignedTo) : ''}
       <hr><h4>MATERIALS</h4>
       ${areas.length ? areas.map((a) => `<div style="font-weight:600;font-size:12px">${esc(a)}</div>${job.materials[a].map((m) =>

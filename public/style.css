@@ -95,8 +95,8 @@ label { display: block; font-weight: 500; margin: 14px 0 6px; }
 .kv > :last-child { font-weight: 600; }
 .kv.sm { font-size: 12px; margin-bottom: 6px; }
 .kv.sm > :first-child { width: 120px; }
-.ok { color: #43a047; }
-.todo { color: #bdbdbd; }
+.ok, .info-row .i.ok { color: #43a047; }
+.todo, .info-row .i.todo { color: #bdbdbd; }
 .warn { color: #ef6c00; }
 
 /* photos */
