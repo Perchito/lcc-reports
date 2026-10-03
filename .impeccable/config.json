@@ -1,0 +1,17 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "broken-image",
+        "value": "*",
+        "files": [
+          "public/ui.js"
+        ],
+        "createdAt": "2026-10-03T18:44:03.323Z",
+        "reason": "Claude: img src is set at runtime (hydrate() for local photos, viewer show())"
+      }
+    ]
+  }
+}

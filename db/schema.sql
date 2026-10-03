@@ -26,3 +26,13 @@ create table if not exists jobs (
   created_at timestamptz not null default now()
 );
 create index if not exists jobs_assigned_idx on jobs (lower(data->>'assignedTo'));
+
+-- 2026-10 redesign: every material line gets an id so it can be edited/removed on its own
+-- (needed for offline edits). Only touches lines without one; safe to re-run.
+update jobs set data = jsonb_set(data, '{materials}', (
+  select jsonb_object_agg(area, (
+    select coalesce(jsonb_agg(case when m ? 'id' then m
+      else m || jsonb_build_object('id', left(replace(gen_random_uuid()::text, '-', ''), 16)) end), '[]'::jsonb)
+    from jsonb_array_elements(items) m))
+  from jsonb_each(data->'materials') e(area, items)))
+where exists (select 1 from jsonb_each(data->'materials') e(area, items), jsonb_array_elements(items) m where not m ? 'id');

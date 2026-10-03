@@ -1,12 +1,12 @@
 import express from 'express';
 import pg from 'pg';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import {
   SESSION_DAYS, hashPassword, verifyPassword, newToken, newPassword, tokenHash, readCookie,
   loginBlocked, loginFailed, loginOk,
 } from './lib/auth.mjs';
 import { homeStorage } from './lib/home-storage.mjs';
-import { PHOTO_ROOMS, PROBLEM_CATEGORIES, newJob, cleanPatch, slug } from './lib/jobs.mjs';
+import { PHOTO_ROOMS, MATERIAL_AREAS, STATUS, newJob, cleanPatch, materialItem, problemItem, slug } from './lib/jobs.mjs';
 import { reportPdf, pdfFilename } from './lib/pdf.mjs';
 
 const { DATABASE_URL, PORT = 4630 } = process.env;
@@ -72,6 +72,8 @@ app.post('/api/logout', async (req, res) => {
 });
 
 app.get('/api/me', requireUser(), (req, res) => res.json(req.user));
+// cheap reachability check for the app's sync engine (navigator.onLine alone can't tell)
+app.get('/api/health', (req, res) => res.set('Cache-Control', 'no-store').json({ ok: true }));
 
 app.post('/api/password', requireUser(), async (req, res) => {
   const { current = '', next = '' } = req.body || {};
@@ -150,7 +152,66 @@ async function update(req, sql, params) {
 }
 
 app.patch('/api/jobs/:id', requireUser(), async (req, res) => {
-  res.json(await update(req, 'data || $2::jsonb', [cleanPatch(req.body, req.user.role)]));
+  const patch = cleanPatch(req.body, req.user.role);
+  const now = new Date().toISOString();
+  if (patch.status === STATUS.adminReviewed) patch.reviewedAt = now;
+  if ('assignedTo' in patch) patch.assignedAt = patch.assignedTo ? now : null;
+  res.json(await update(req, 'data || $2::jsonb', [patch]));
+});
+
+// read-modify-write of one job under a row lock: for edits inside lists (materials, problems)
+async function withJob(req, fn) {
+  await loadJob(req); // access check
+  const client = await pool.connect();
+  try {
+    await client.query('begin');
+    const { rows } = await client.query('select data from jobs where id = $1 for update', [req.params.id]);
+    const data = rows[0].data;
+    fn(data);
+    await client.query('update jobs set data = $2 where id = $1', [req.params.id, data]);
+    await client.query('commit');
+    return data;
+  } catch (e) { await client.query('rollback').catch(() => {}); throw e; }
+  finally { client.release(); }
+}
+const findMaterial = (data, mid) => {
+  for (const area of MATERIAL_AREAS) {
+    const i = (data.materials?.[area] || []).findIndex((m) => m.id === mid);
+    if (i >= 0) return { area, i, item: data.materials[area][i] };
+  }
+  return null;
+};
+
+// materials one at a time: admins and employees both add/edit; employees delete only what they added.
+// The id comes from the phone, so replaying a queued add is harmless.
+app.post('/api/jobs/:id/materials', requireUser(), async (req, res) => {
+  const area = req.body?.area;
+  if (!MATERIAL_AREAS.includes(area)) throw bad(400, 'Pick an area');
+  const item = materialItem(req.body.item || {}, req.user.email);
+  res.json(await withJob(req, (data) => {
+    data.materials ??= {};
+    const found = findMaterial(data, item.id);
+    if (found) data.materials[found.area].splice(found.i, 1);
+    (data.materials[area] ??= []).push(found ? { ...item, createdBy: found.item.createdBy } : item);
+  }));
+});
+app.patch('/api/jobs/:id/materials/:mid', requireUser(), async (req, res) => {
+  res.json(await withJob(req, (data) => {
+    const found = findMaterial(data, req.params.mid);
+    if (!found) throw bad(404, 'That material was removed');
+    const item = materialItem({ ...found.item, ...req.body, id: found.item.id, createdBy: found.item.createdBy });
+    const area = MATERIAL_AREAS.includes(req.body?.area) ? req.body.area : found.area;
+    data.materials[found.area].splice(found.i, 1);
+    (data.materials[area] ??= []).push(item);
+  }));
+});
+app.delete('/api/jobs/:id/materials/:mid', requireUser(), async (req, res) => {
+  res.json(await withJob(req, (data) => {
+    const found = findMaterial(data, req.params.mid);
+    if (!found) return; // already gone: deleting twice is fine
+    if (req.user.role !== 'admin' && found.item.createdBy !== req.user.email) throw bad(403, 'Only the admin can remove materials they added');
+    data.materials[found.area].splice(found.i, 1);
+  }));
 });
 
 const room = (req) => {
@@ -183,18 +244,19 @@ app.delete('/api/jobs/:id/photos/:room/:type', requireUser(), async (req, res) =
 app.put('/api/jobs/:id/files/problem', requireUser(), jpeg, async (req, res) => {
   if (!isImage(req.body)) throw bad(400, 'Send a JPEG or PNG photo');
   await loadJob(req);
-  const file = `problem_${Date.now()}_issue.jpg`;
+  // ?pid=<problem id> makes the name stable, so a resent upload overwrites instead of duplicating
+  const pid = /^[a-z0-9]{6,32}$/.test(req.query.pid || '') ? req.query.pid : String(Date.now());
+  const file = `problem_${pid}_issue.jpg`;
   await storage.put(`jobs/${req.params.id}/${file}`, req.body, req.headers['content-type']);
   res.json({ url: `/api/jobs/${req.params.id}/files/${file}` });
 });
 
 app.post('/api/jobs/:id/problems', requireUser(), async (req, res) => {
-  const { category, description = '', photoPath = null } = req.body || {};
-  if (!PROBLEM_CATEGORIES.includes(category)) throw bad(400, 'Pick a problem type');
-  if (!String(description).trim()) throw bad(400, 'Please describe the problem');
-  if (photoPath !== null && !String(photoPath).startsWith(`/api/jobs/${req.params.id}/files/problem_`)) throw bad(400, 'Bad photo');
-  const problem = { category, description: String(description).trim().slice(0, 2000), photoPath, createdBy: req.user.email, createdAt: new Date().toISOString() };
-  res.json(await update(req, `jsonb_set(data, '{problems}', coalesce(data->'problems', '[]') || $2::jsonb)`, [JSON.stringify([problem])]));
+  const problem = problemItem(req.body || {}, req.user.email, req.params.id);
+  res.json(await withJob(req, (data) => {
+    data.problems ??= [];
+    if (!data.problems.some((p) => p.id === problem.id)) data.problems.push(problem); // resend of a queued report
+  }));
 });
 
 const fileKey = (req) => {
@@ -234,7 +296,11 @@ const VERSION = Date.now().toString(36);
 const stamped = (path) => readFileSync(path, 'utf8').replaceAll('__V__', VERSION);
 const indexHtml = stamped('public/index.html');
 app.get(['/', '/index.html'], (req, res) => res.set('Cache-Control', 'no-cache').type('html').send(indexHtml));
-const jsFiles = { '/app.js': stamped('public/app.js'), '/jobs.mjs': readFileSync('lib/jobs.mjs', 'utf8') };
+// every front-end module, stamped so `import './ui.js?v=__V__'` is one shared instance per deploy
+const jsFiles = Object.fromEntries(readdirSync('public').filter((f) => f.endsWith('.js') && f !== 'sw.js').map((f) => [`/${f}`, stamped(`public/${f}`)]));
+jsFiles['/jobs.mjs'] = readFileSync('lib/jobs.mjs', 'utf8');
+// the service worker gets the version too, so a deploy installs a fresh app-shell cache
+jsFiles['/sw.js'] = stamped('public/sw.js');
 app.get(Object.keys(jsFiles), (req, res) => res.set('Cache-Control', 'no-cache').type('js').send(jsFiles[req.path]));
 app.use(express.static('public', { setHeaders: (res) => res.set('Cache-Control', 'no-cache') }));
 
