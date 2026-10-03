@@ -5,7 +5,7 @@
   "private": true,
   "scripts": {
     "start": "node server.mjs",
-    "test": "node lib/auth.mjs && node lib/jobs.mjs"
+    "test": "node lib/auth.mjs && node lib/jobs.mjs && node lib/push.mjs"
   },
   "dependencies": {
     "express": "^5.1.0",
