@@ -46,6 +46,15 @@ chmod 440 /etc/sudoers.d/lcc-reports && visudo -cf /etc/sudoers.d/lcc-reports
 systemctl daemon-reload
 systemctl enable --now lcc-reports.service
 
+# public hostname on the perchito tunnel (the unit reads /etc/cloudflared/config.yml, not ~/.cloudflared)
+CF=/etc/cloudflared/config.yml
+if ! grep -q 'lcc.perchito.app' $CF; then
+  cp $CF $CF.bak-lcc-reports
+  sed -i 's|^  - service: http_status:404|  - hostname: lcc.perchito.app\n    service: http://localhost:4630\n  - service: http_status:404|' $CF
+  sudo -u perchito cloudflared tunnel route dns perchito lcc.perchito.app || true
+  systemctl restart cloudflared
+fi
+
 echo
 sudo -u perchito bash -c 'set -a; . ./.env; node scripts/create-user.mjs "$0" "$1" admin' "$ADMIN_EMAIL" "$ADMIN_NAME"
 echo "Local: http://127.0.0.1:4630 — public at https://lcc.perchito.app once the tunnel route is added."
