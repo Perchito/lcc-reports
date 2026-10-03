@@ -6,7 +6,7 @@ import {
   loginBlocked, loginFailed, loginOk,
 } from './lib/auth.mjs';
 import { homeStorage } from './lib/home-storage.mjs';
-import { PHOTO_ROOMS, MATERIAL_AREAS, STATUS, newJob, cleanPatch, materialItem, problemItem, slug } from './lib/jobs.mjs';
+import { MATERIAL_AREAS, MAX_ROOMS, STATUS, newJob, cleanPatch, materialItem, problemItem, slug, roomsOf, findRoom, cleanRooms } from './lib/jobs.mjs';
 import { reportPdf, pdfFilename } from './lib/pdf.mjs';
 import { pushRoutes, notify } from './lib/push.mjs';
 import { address } from './lib/jobs.mjs';
@@ -229,9 +229,10 @@ app.delete('/api/jobs/:id/materials/:mid', requireUser(), async (req, res) => {
   }));
 });
 
-const room = (req) => {
-  const r = PHOTO_ROOMS[Number(req.params.room)];
-  if (!r || !['before', 'after'].includes(req.params.type)) throw bad(404, 'No such photo slot');
+// the photo spot in the URL: its slug (or, from the first version of the app, its position)
+const room = (job, req) => {
+  const r = findRoom(job, req.params.room);
+  if (!r || !['before', 'after'].includes(req.params.type)) throw bad(404, 'That photo spot is no longer on this job');
   return r;
 };
 const jpeg = express.raw({ type: ['image/jpeg', 'image/png'], limit: '12mb' });
@@ -239,9 +240,8 @@ const isImage = (b) => Buffer.isBuffer(b) && b.length > 4 && ((b[0] === 0xff && 
 
 // photos live in storage as jobs/<id>/<room>_<before|after>.jpg, like the Flutter app's file names
 app.put('/api/jobs/:id/photos/:room/:type', requireUser(), jpeg, async (req, res) => {
-  const r = room(req), t = req.params.type;
   if (!isImage(req.body)) throw bad(400, 'Send a JPEG or PNG photo');
-  await loadJob(req);
+  const r = room(await loadJob(req), req), t = req.params.type;
   const file = `${slug(r)}_${t}.jpg`;
   await storage.put(`jobs/${req.params.id}/${file}`, req.body, req.headers['content-type']);
   const patch = { [`${t}Path`]: `/api/jobs/${req.params.id}/files/${file}?v=${Date.now()}`, [`${t}TakenBy`]: req.user.email, [`${t}At`]: new Date().toISOString() };
@@ -249,11 +249,33 @@ app.put('/api/jobs/:id/photos/:room/:type', requireUser(), jpeg, async (req, res
 });
 
 app.delete('/api/jobs/:id/photos/:room/:type', requireUser(), async (req, res) => {
-  const r = room(req), t = req.params.type;
+  const r = room(await loadJob(req), req), t = req.params.type;
   const patch = { [`${t}Path`]: null, [`${t}TakenBy`]: null, [`${t}At`]: null };
   const job = await update(req, `jsonb_set(data, array['photos', $2], coalesce(data->'photos'->$2, '{}') || $3::jsonb)`, [r, patch]);
   storage.del(`jobs/${req.params.id}/${slug(r)}_${t}.jpg`).catch(() => {});
   res.json(job);
+});
+
+// photo spots on a job: anyone working on it can add one on site; a spot can only be removed while it has no photos
+app.post('/api/jobs/:id/rooms', requireUser(), async (req, res) => {
+  const [name] = cleanRooms([req.body?.name]);
+  if (!name) throw bad(400, 'Give the photo spot a name');
+  res.json(await withJob(req, (data) => {
+    const rooms = [...roomsOf(data)];
+    if (rooms.some((r) => slug(r) === slug(name))) return; // already there (or a resend)
+    if (rooms.length >= MAX_ROOMS) throw bad(400, `At most ${MAX_ROOMS} photo spots`);
+    data.rooms = [...rooms, name];
+    (data.photos ??= {})[name] ??= {};
+  }));
+});
+app.delete('/api/jobs/:id/rooms/:room', requireUser(), async (req, res) => {
+  res.json(await withJob(req, (data) => {
+    const r = findRoom(data, req.params.room);
+    if (!r) return; // already gone
+    if (data.photos?.[r]?.beforePath || data.photos?.[r]?.afterPath) throw bad(409, `“${r}” has photos — delete them first`);
+    data.rooms = roomsOf(data).filter((x) => x !== r);
+    delete data.photos?.[r];
+  }));
 });
 
 app.put('/api/jobs/:id/files/problem', requireUser(), jpeg, async (req, res) => {
@@ -294,7 +316,7 @@ app.get('/api/jobs/:id/files/:file', requireUser(), async (req, res) => {
 app.get('/api/jobs/:id/pdf', requireUser(), async (req, res) => {
   const job = await loadJob(req);
   const images = {};
-  await Promise.all(PHOTO_ROOMS.flatMap((r) => ['before', 'after'].map(async (t) => {
+  await Promise.all(roomsOf(job).flatMap((r) => ['before', 'after'].map(async (t) => {
     const path = job.photos?.[r]?.[`${t}Path`];
     if (!path) return;
     const got = await storage.get(`jobs/${job.id}/${slug(r)}_${t}.jpg`).catch(() => null);

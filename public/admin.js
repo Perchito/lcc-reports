@@ -1,7 +1,7 @@
 // Admin screens: new job, edit job details / assignment, team logins.
 import { esc, icon, on, $, $$, toast, sheet, confirmSheet, empty, jobNo } from './ui.js?v=__V__';
 import * as store from './store.js?v=__V__';
-import { STATUS, isOpen } from './jobs.mjs?v=__V__';
+import { STATUS, isOpen, PHOTO_ROOMS, MAX_ROOMS, slug } from './jobs.mjs?v=__V__';
 
 const PROPERTY = [
   ['houseNumber', 'House / flat number', 'e.g. 12 or Flat 4B', true, 'text', 'address-line1'],
@@ -30,7 +30,42 @@ const assignSelect = (list, cur) => list
       ${cur && !list.some((u) => u.email === cur) ? `<option selected value="${esc(cur)}">${esc(cur)}</option>` : ''}</select>`
   : `<input id="assignedTo" name="assignedTo" type="email" value="${esc(cur || '')}" placeholder="employee@email.com">`;
 
-function form(values, users, { title }) {
+// photo spots for a new job: starts with the standard eight; remove any, add your own
+const spotsEditor = (rooms) => `<section class="form-section"><h3 class="section-title">Photo spots <span id="spotcount">${rooms.length}</span></h3>
+  <p class="small muted" style="margin-bottom:10px">One before and one after photo per spot. More can be added on site.</p>
+  <div class="spot-chips" id="spots" data-rooms="${esc(JSON.stringify(rooms))}"></div>
+  <div class="add-spot"><input id="spotname" placeholder="Add a spot, e.g. Hallway" autocomplete="off" enterkeyhint="done" aria-label="New photo spot name">
+    <button type="button" class="btn btn-secondary" id="addspot">${icon('add')} Add</button></div>
+  <div class="row-between"><button type="button" class="btn btn-text btn-sm" id="stdspots">${icon('restart_alt')} Standard 8</button><button type="button" class="btn btn-text btn-sm danger" id="nospots">Clear all</button></div></section>`;
+function wireSpots(v, onChange) {
+  const box = $('#spots', v);
+  if (!box) return;
+  const get = () => JSON.parse(box.dataset.rooms);
+  const set = (rooms) => { box.dataset.rooms = JSON.stringify(rooms); paint(); onChange(); };
+  const err = $('#err', v);
+  const paint = () => {
+    const rooms = get();
+    $('#spotcount', v).textContent = rooms.length;
+    box.innerHTML = rooms.length ? rooms.map((r, k) => `<span class="spot-chip"><span class="spot-no">${k + 1}</span>${esc(r)}<button type="button" class="icon-btn" data-rm="${k}" aria-label="Remove ${esc(r)}">${icon('close')}</button></span>`).join('')
+      : '<p class="muted small">No spots — the employee will add them on site.</p>';
+    on(box, '[data-rm]', 'click', (e, b) => { const r = get(); r.splice(Number(b.dataset.rm), 1); set(r); });
+  };
+  const add = () => {
+    const input = $('#spotname', v), name = input.value.trim().replace(/\s+/g, ' ');
+    const rooms = get();
+    if (!name) return input.focus();
+    if (rooms.some((r) => slug(r) === slug(name))) { err.hidden = false; err.textContent = `“${name}” is already a photo spot.`; return; }
+    if (rooms.length >= MAX_ROOMS) { err.hidden = false; err.textContent = `At most ${MAX_ROOMS} photo spots.`; return; }
+    err.hidden = true; input.value = ''; set([...rooms, name]); input.focus();
+  };
+  on(v, '#addspot', 'click', add);
+  on(v, '#spotname', 'keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } });
+  on(v, '#stdspots', 'click', () => set([...PHOTO_ROOMS]));
+  on(v, '#nospots', 'click', () => set([]));
+  paint();
+}
+
+function form(values, users, { spots } = {}) {
   return `<form id="jobform" novalidate>
     <section class="form-section"><h3 class="section-title">Property</h3>${PROPERTY.map((f) => field(f, values[f[0]])).join('')}</section>
     <section class="form-section"><h3 class="section-title">Key safe</h3>
@@ -39,10 +74,13 @@ function form(values, users, { title }) {
     <section class="form-section"><h3 class="section-title">Person in charge</h3>${CONTACT.map((f) => field(f, values[f[0]])).join('')}</section>
     <section class="form-section"><h3 class="section-title">Assign to</h3><label class="field"><span>Employee</span>${assignSelect(users, values.assignedTo)}</label>
       ${users && !users.length ? '<p class="muted small">No employees yet — <a href="#/team">add them on the Team page</a>.</p>' : ''}</section>
+    ${spots ? spotsEditor(Array.isArray(values.rooms) ? values.rooms : [...PHOTO_ROOMS]) : ''}
     <p class="form-error" id="err" role="alert" hidden></p></form>`;
 }
 function readForm(v) {
-  const out = Object.fromEntries($$('#jobform input, #jobform select', v).map((i) => [i.name, i.value.trim()]));
+  const out = Object.fromEntries($$('#jobform input[name], #jobform select[name]', v).map((i) => [i.name, i.value.trim()]));
+  const spots = $('#spots', v);
+  if (spots) out.rooms = JSON.parse(spots.dataset.rooms);
   out.assignedTo = (out.assignedTo || '').toLowerCase();
   return out;
 }
@@ -67,11 +105,12 @@ async function newJob() {
   return {
     title: 'New job', back: '#/home', side: 'new',
     body: `${restored ? `<p class="notice">${icon('restore')}<span class="grow">Draft restored from earlier.</span><button class="btn btn-text btn-sm" id="clear">Clear</button></p>` : ''}
-      <p class="lead">Create the job — it appears on the employee's phone once assigned.${store.sync.reachable ? '' : ' <b>You’re offline:</b> it will be sent and get its Job ID when you’re back online.'}</p>${form(draft, users, {})}`,
+      <p class="lead">Create the job — it appears on the employee's phone once assigned.${store.sync.reachable ? '' : ' <b>You’re offline:</b> it will be sent and get its Job ID when you’re back online.'}</p>${form(draft, users, { spots: true })}`,
     footer: `<button class="btn btn-primary btn-lg" id="save">${icon('add_home_work')} Create job</button>`,
     mount(v, f) {
       wirePin(v);
-      on(v, 'input, select', 'input', () => store.saveDraft('new-job', readForm(v)));
+      wireSpots(v, () => store.saveDraft('new-job', readForm(v)));
+      on(v, 'input[name], select', 'input', () => store.saveDraft('new-job', readForm(v)));
       on(v, 'select', 'change', () => store.saveDraft('new-job', readForm(v)));
       on(v, '#clear', 'click', async () => { await store.clearDraft('new-job'); window.dispatchEvent(new Event('lcc:redraw')); });
       $('#jobform', v).onsubmit = (e) => { e.preventDefault(); $('#save', f).click(); };

@@ -15,7 +15,7 @@ export function jobCard(j, me, { compact = false } = {}) {
     <div class="job-card-top"><div class="grow"><h3>${esc(line1(j))}</h3><p>${esc(line2(j))}</p></div>${chip(j)}</div>
     <div class="job-meta"><span class="mono">${esc(jobNo(j))}</span>${me.role === 'admin' ? `<span>${icon('person')}${esc(j.assignedTo || 'Unassigned')}</span>` : ''}
       ${waiting ? `<span class="pending-dot">${icon('upload')}${waiting} waiting</span>` : ''}</div>
-    ${compact ? '' : `<div class="stats">${stat('Before', `${p.before}/8`, p.before === 8)}${stat('Materials', materialCount(j))}${stat('Problems', j.problems?.length || 0)}${stat('After', `${p.after}/8`, p.after === 8)}</div>`}
+    ${compact ? '' : `<div class="stats">${stat('Before', `${p.before}/${p.photos}`, p.photos && p.before === p.photos)}${stat('Materials', materialCount(j))}${stat('Problems', j.problems?.length || 0)}${stat('After', `${p.after}/${p.photos}`, p.photos && p.after === p.photos)}</div>`}
     <div class="job-card-foot">${progressBar(p.pct, `${line1(j)} progress`)}<span class="pct">${p.pct}%</span><span class="open">Open ${icon('arrow_forward')}</span></div>
   </a>`;
 }

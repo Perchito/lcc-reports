@@ -8,7 +8,7 @@ import {
 import * as store from './store.js?v=__V__';
 import {
   PHOTO_ROOMS, MATERIAL_AREAS, MATERIAL_STATUSES, MATERIAL_UNITS, PROBLEM_CATEGORIES, STATUS,
-  address, progress, nextStep, reviewChecklist, displayStatus, photoCount, materialList, isOpen,
+  address, progress, nextStep, reviewChecklist, displayStatus, photoCount, materialList, isOpen, roomsOf, slug, MAX_ROOMS,
 } from './jobs.mjs?v=__V__';
 
 const enc = encodeURIComponent;
@@ -87,10 +87,10 @@ async function details(id, q, me) {
       <section class="card progress-card"><div class="row-between"><h3 class="label">Job progress</h3><b class="big-pct">${p.pct}%</b></div>
         ${progressBar(p.pct, 'Job progress')}<p class="muted">${p.done} of ${p.total} stages complete${isOpen(j) ? ` · Next: <b>${esc(ns.label)}</b>` : ''}</p></section>
       <section class="flow">
-        ${step(`${base}/photos/before`, 'photo_camera', 'Before photos', `${p.before} / 8 completed`, p.before === 8 ? 'done' : p.before ? 'part' : 'todo')}
+        ${step(`${base}/photos/before`, 'photo_camera', 'Before photos', p.photos ? `${p.before} / ${p.photos} completed` : 'Add photo spots', p.photos && p.before === p.photos ? 'done' : p.before ? 'part' : 'todo')}
         ${step(`${base}/materials`, 'inventory_2', 'Materials', mats ? `${mats} item${mats === 1 ? '' : 's'}` : 'None recorded yet', mats ? 'done' : 'todo')}
         ${step(`${base}/problems`, 'report_problem', 'Problems', probs ? `${probs} reported` : 'None reported', probs ? 'warn' : 'todo')}
-        ${step(`${base}/photos/after`, 'add_a_photo', 'After photos', `${p.after} / 8 completed`, p.after === 8 ? 'done' : p.after ? 'part' : 'todo')}
+        ${step(`${base}/photos/after`, 'add_a_photo', 'After photos', p.photos ? `${p.after} / ${p.photos} completed` : 'Add photo spots', p.photos && p.after === p.photos ? 'done' : p.after ? 'part' : 'todo')}
         ${reportDone || j.reportGeneratedAt ? step(`#/reports/${esc(id)}`, 'description', 'Report', reportDone ? displayStatus(j) : 'Generated — not submitted', reportDone ? 'done' : 'part')
           : step(`${base}/review`, 'fact_check', 'Review & submit', 'Check everything, then send', 'todo')}
       </section>
@@ -123,44 +123,62 @@ function startJob(j) {
   go(`#/jobs/${enc(j.id)}/photos/before`);
 }
 
-// ── guided photo capture (8 fixed rooms, before or after) ──
-const slotIndex = new Map(); // `${id}:${type}` -> current room index (survives redraws)
-async function photos(id, type, q) {
+// ── guided photo capture (the job's own photo spots, before or after) ──
+const slotIndex = new Map(); // `${id}:${type}` -> current spot index (survives redraws)
+async function photos(id, type, q, me) {
   const j = await getJob(id);
+  const rooms = roomsOf(j), total = rooms.length;
   const before = type === 'before', key = `${id}:${type}`;
-  if (q.has('i')) { slotIndex.set(key, Math.max(0, Math.min(7, Number(q.get('i')) || 0))); history.replaceState(null, '', `#/jobs/${enc(id)}/photos/${type}`); }
-  if (!slotIndex.has(key)) { const first = PHOTO_ROOMS.findIndex((r) => !j.photos?.[r]?.[`${type}Path`]); slotIndex.set(key, first < 0 ? 0 : first); }
-  const i = slotIndex.get(key), room = PHOTO_ROOMS[i];
-  const path = j.photos?.[room]?.[`${type}Path`], n = photoCount(j, type);
-  const st = (r) => store.slotState(id, r, type);
-  const states = PHOTO_ROOMS.map((_, r) => st(r));
-  const up = { uploaded: PHOTO_ROOMS.filter((r, k) => j.photos?.[r]?.[`${type}Path`] && !states[k]).length, queued: states.filter((s) => s === 'queued').length, uploading: states.filter((s) => s === 'uploading').length, failed: states.filter((s) => s === 'failed').length };
-  const cur = st(i), done = n === 8 && slotIndex.get(`${key}:done`);
-  const title = before ? 'Before photos' : 'After photos';
+  const title = before ? 'Before photos' : 'After photos', back = `#/jobs/${enc(id)}`;
+  const has = (r) => !!j.photos?.[r]?.[`${type}Path`];
   const go_ = (k) => { slotIndex.set(key, k); slotIndex.delete(`${key}:done`); redraw(); };
+  const editSpots = () => spotsSheet(j, type);
+
+  if (!total) {
+    return {
+      title, back, live: true,
+      body: `<div class="state-card">${icon('add_a_photo')}<h2>No photo spots yet</h2><p>Add the places you'll photograph — the same spots are used for the before and after photos.</p></div>`,
+      footer: `<button class="btn btn-primary btn-lg" id="spots">${icon('add')} Add photo spots</button>`,
+      mount: (v, f) => on(f, '#spots', 'click', editSpots),
+    };
+  }
+  if (q.has('i')) { slotIndex.set(key, Number(q.get('i')) || 0); history.replaceState(null, '', `#/jobs/${enc(id)}/photos/${type}`); }
+  // first visit, or a finished set that has since gained a spot: go to the first spot without a photo
+  if (!slotIndex.has(key) || (slotIndex.get(`${key}:done`) && rooms.some((r) => !has(r)))) {
+    const first = rooms.findIndex((r) => !has(r));
+    slotIndex.set(key, first < 0 ? 0 : first); slotIndex.delete(`${key}:done`);
+  }
+  const i = Math.max(0, Math.min(total - 1, slotIndex.get(key))), room = rooms[i]; // spots may have been removed meanwhile
+  const path = j.photos?.[room]?.[`${type}Path`], n = photoCount(j, type);
+  const states = rooms.map((r) => store.slotState(id, r, type));
+  const up = { uploaded: rooms.filter((r, k) => has(r) && !states[k]).length, queued: states.filter((x) => x === 'queued').length, uploading: states.filter((x) => x === 'uploading').length, failed: states.filter((x) => x === 'failed').length };
+  const cur = states[i], done = n === total && slotIndex.get(`${key}:done`);
+  const spotsBtn = `<button class="icon-btn" id="spots" aria-label="Edit photo spots">${icon('edit_location_alt')}</button>`;
 
   if (done) {
     return {
-      title, back: `#/jobs/${enc(id)}`, live: true,
-      body: `<div class="state-card success">${icon('task_alt')}<h2>8 / 8 ${before ? 'before' : 'after'} photos complete</h2>
+      title, back, live: true,
+      body: `<div class="state-card success">${icon('task_alt')}<h2>${n} / ${total} ${before ? 'before' : 'after'} photos complete</h2>
         <p>${up.queued + up.uploading ? `${up.queued + up.uploading} still uploading — they're safe on this phone and will finish by themselves.` : 'All photos are uploaded.'}</p>
-        <button class="btn btn-text" id="again">${icon('grid_view')} Check the photos again</button></div>`,
+        <button class="btn btn-text" id="again">${icon('grid_view')} Check the photos again</button>
+        <button class="btn btn-text" id="spots2">${icon('add_location_alt')} Add another photo spot</button></div>`,
       footer: before
-        ? `<a class="btn btn-primary btn-lg" href="#/jobs/${enc(id)}">${icon('arrow_forward')} Continue to job</a>`
-        : `<a class="btn btn-primary btn-lg" href="#/jobs/${enc(id)}/review">Continue to review ${icon('arrow_forward')}</a>`,
-      mount: (v) => on(v, '#again', 'click', () => go_(0)),
+        ? `<a class="btn btn-primary btn-lg" href="${back}">${icon('arrow_forward')} Continue to job</a>`
+        : `<a class="btn btn-primary btn-lg" href="${back}/review">Continue to review ${icon('arrow_forward')}</a>`,
+      mount: (v) => { on(v, '#again', 'click', () => go_(0)); on(v, '#spots2', 'click', editSpots); },
     };
   }
   const badge = { queued: ['schedule', 'Saved on phone · waiting to upload'], uploading: ['cloud_upload', 'Uploading…'], failed: ['error', 'Upload failed'] }[cur]
     || (path ? ['cloud_done', 'Uploaded'] : null);
   const ref = !before && j.photos?.[room]?.beforePath; // after photos: show the before shot to match the angle
+  const lastMissing = rooms.every((r, k) => k === i || has(r));
 
   return {
-    title, back: `#/jobs/${enc(id)}`, live: true,
-    actions: `<span class="hdr-count">${n}/8</span>`,
+    title, back, live: true,
+    actions: `<span class="hdr-count">${n}/${total}</span>${spotsBtn}`,
     body: `
       <div class="capture">
-        <div class="capture-head"><span class="label">${before ? 'Before' : 'After'} · ${i + 1} of 8</span><h2>${esc(room)}</h2></div>
+        <div class="capture-head"><span class="label">${before ? 'Before' : 'After'} · ${i + 1} of ${total}</span><h2>${esc(room)}</h2></div>
         <div class="frame ${path ? 'has-photo' : ''}" id="frame">
           ${path ? `${photoImg(path, `${room} ${type} photo`)}<button class="frame-btn del" id="del" aria-label="Delete photo">${icon('delete')}</button>
               <button class="frame-btn zoom" id="zoom" aria-label="View full screen">${icon('open_in_full')}</button>`
@@ -168,49 +186,91 @@ async function photos(id, type, q) {
           ${badge ? `<span class="frame-badge b-${cur || 'done'}">${icon(badge[0])}${badge[1]}</span>` : ''}
           ${ref ? `<button class="frame-ref" id="ref" aria-label="View the before photo">${photoImg(ref, 'Before photo')}<span>Before</span></button>` : ''}
         </div>
-        ${cur === 'failed' ? `<div class="notice bad">${icon('error')}<div><b>Photo upload failed</b><br>The photo is safely saved on this device. ${esc(store.slotOp(id, i, type)?.error || '')}
+        ${cur === 'failed' ? `<div class="notice bad">${icon('error')}<div><b>Photo upload failed</b><br>The photo is safely saved on this device. ${esc(store.slotOp(id, room, type)?.error || '')}
             <div class="btn-row"><button class="btn btn-secondary btn-sm" id="retry">Retry</button></div></div></div>` : ''}
-        <div class="dots" role="tablist" aria-label="Rooms">${PHOTO_ROOMS.map((r, k) => {
-          const has = !!j.photos?.[r]?.[`${type}Path`];
-          return `<button class="dot ${k === i ? 'cur' : ''} ${has ? 'has' : ''} ${states[k] === 'failed' ? 'fail' : ''}" data-i="${k}" role="tab" aria-selected="${k === i}" aria-label="${k + 1}. ${esc(r)}${has ? ', done' : ''}">${has ? icon('check') : k + 1}</button>`;
-        }).join('')}</div>
+        <div class="dots" role="tablist" aria-label="Photo spots" style="--cols:${Math.min(total, 8)};--cols-sm:${Math.min(total, 4)}">${rooms.map((r, k) => `
+          <button class="dot ${k === i ? 'cur' : ''} ${has(r) ? 'has' : ''} ${states[k] === 'failed' ? 'fail' : ''}" data-i="${k}" role="tab" aria-selected="${k === i}" aria-label="${k + 1}. ${esc(r)}${has(r) ? ', done' : ''}">${has(r) ? icon('check') : k + 1}</button>`).join('')}</div>
+        <button class="btn btn-text btn-sm spots-link" id="spots3">${icon('edit_location_alt')} ${total} photo spot${total === 1 ? '' : 's'} · Add or remove</button>
         ${up.queued + up.uploading + up.failed ? `<p class="upload-line" aria-live="polite">${icon('cloud_upload')} ${up.uploaded} uploaded · ${up.uploading} uploading · ${up.queued} waiting${up.failed ? ` · <b class="bad-text">${up.failed} failed</b>` : ''}</p>` : ''}
       </div>`,
     footer: path
       ? `<div class="btn-row"><button class="btn btn-secondary btn-lg" id="shoot">${icon('replay')} Retake</button>
-          <button class="btn btn-primary btn-lg" id="next">${i === 7 || n === 8 && PHOTO_ROOMS.slice(i + 1).every((r) => j.photos?.[r]?.[`${type}Path`]) ? 'Finish' : 'Next'} ${icon('arrow_forward')}</button></div>`
+          <button class="btn btn-primary btn-lg" id="next">${i === total - 1 || (n === total && lastMissing) ? 'Finish' : 'Next'} ${icon('arrow_forward')}</button></div>`
       : `<div class="btn-row"><button class="btn btn-secondary btn-lg icon-only" id="lib" aria-label="Choose from photo library">${icon('photo_library')}</button>
           <button class="btn btn-primary btn-lg grow" id="shoot">${icon('photo_camera')} Take photo</button></div>`,
     mount(v, f) {
       const take = async (camera) => {
         const blob = await pickPhoto({ camera });
         if (!blob) return;
-        await store.photo(id, i, type, blob);
+        await store.photo(id, room, type, blob);
         toast('Photo captured');
       };
       on(f, '#shoot', 'click', () => take(true));
       on(v, '#shoot2', 'click', () => take(true));
       on(f, '#lib', 'click', () => take(false));
-      on(v, '#retry', 'click', () => store.retry(`slot:${id}:${i}:${type}`));
+      on(document, '#spots', 'click', editSpots);
+      on(v, '#spots3', 'click', editSpots);
+      on(v, '#retry', 'click', () => store.retry(store.slotOp(id, room, type)?.id));
       on(v, '[data-i]', 'click', (e, b) => go_(Number(b.dataset.i)));
-      on(v, '#del', 'click', async () => { if (await confirmSheet({ title: 'Delete photo?', text: `The ${type} photo for ${room} will be removed.`, ok: 'Delete photo', danger: true })) store.deletePhoto(id, i, type); });
-      const all = PHOTO_ROOMS.map((r, k) => ({ src: j.photos?.[r]?.[`${type}Path`], label: `${k + 1}. ${r} · ${before ? 'Before' : 'After'}` })).filter((x) => x.src);
+      on(v, '#del', 'click', async () => { if (await confirmSheet({ title: 'Delete photo?', text: `The ${type} photo for ${room} will be removed.`, ok: 'Delete photo', danger: true })) store.deletePhoto(id, room, type); });
+      const all = rooms.map((r, k) => ({ src: j.photos?.[r]?.[`${type}Path`], label: `${k + 1}. ${r} · ${before ? 'Before' : 'After'}` })).filter((x) => x.src);
       on(v, '#zoom', 'click', () => viewer(all, all.findIndex((x) => x.src === path)));
       on(v, '#ref', 'click', () => viewer([{ src: ref, label: `${room} · Before` }]));
       on(f, '#next', 'click', () => {
-        const nextMissing = PHOTO_ROOMS.findIndex((r, k) => k > i && !j.photos?.[r]?.[`${type}Path`]);
+        const nextMissing = rooms.findIndex((r, k) => k > i && !has(r));
         if (nextMissing >= 0) return go_(nextMissing);
-        if (n === 8) { slotIndex.set(`${key}:done`, true); return redraw(); }
-        const anyMissing = PHOTO_ROOMS.findIndex((r) => !j.photos?.[r]?.[`${type}Path`]);
-        go_(anyMissing >= 0 ? anyMissing : Math.min(7, i + 1));
+        if (n === total) { slotIndex.set(`${key}:done`, true); return redraw(); }
+        const anyMissing = rooms.findIndex((r) => !has(r));
+        go_(anyMissing >= 0 ? anyMissing : Math.min(total - 1, i + 1));
       });
-      // swipe the frame to move between rooms
+      // swipe the frame to move between spots
       let x0 = null;
       const fr = $('#frame', v);
       fr.ontouchstart = (e) => { x0 = e.touches[0].clientX; };
-      fr.ontouchend = (e) => { if (x0 == null) return; const dx = e.changedTouches[0].clientX - x0; x0 = null; if (Math.abs(dx) > 60) go_(Math.max(0, Math.min(7, i + (dx < 0 ? 1 : -1)))); };
+      fr.ontouchend = (e) => { if (x0 == null) return; const dx = e.changedTouches[0].clientX - x0; x0 = null; if (Math.abs(dx) > 60) go_(Math.max(0, Math.min(total - 1, i + (dx < 0 ? 1 : -1)))); };
     },
   };
+}
+
+// add / remove photo spots on a job (works offline). A spot with a before or after photo can't be removed.
+function spotsSheet(j, type) {
+  const draw = () => {
+    const cur = store.job(j.id) || j, rooms = roomsOf(cur);
+    const taken = (r) => !!(cur.photos?.[r]?.beforePath || cur.photos?.[r]?.afterPath);
+    return `<h2>Photo spots</h2><p class="muted">The same spots are used for before and after photos. ${rooms.length} on this job.</p>
+      <div class="list-card spots-list">${rooms.map((r, k) => `<div class="list-row static"><span class="spot-no">${k + 1}</span><span>${esc(r)}</span>
+        ${taken(r) ? `<span class="row-meta">${icon('photo_camera')}</span>` : `<button class="icon-btn danger" data-rm="${esc(r)}" aria-label="Remove ${esc(r)}">${icon('remove_circle_outline')}</button>`}</div>`).join('')
+        || '<p class="muted" style="padding:16px">No spots yet.</p>'}</div>
+      <form id="addspot" class="add-spot" novalidate><input id="spotname" placeholder="e.g. Hallway, Garden, Kitchen (Side 3)" autocomplete="off" enterkeyhint="done" aria-label="New photo spot name">
+        <button class="btn btn-primary">${icon('add')} Add</button></form>
+      ${PHOTO_ROOMS.some((r) => !rooms.some((x) => slug(x) === slug(r))) ? `<p class="small muted">Quick add:</p><div class="chips wrap suggest">${PHOTO_ROOMS.filter((r) => !rooms.some((x) => slug(x) === slug(r))).map((r) => `<button type="button" class="chip-btn" data-add="${esc(r)}">${icon('add')}${esc(r)}</button>`).join('')}</div>` : ''}
+      <p class="form-error" id="err" role="alert" hidden></p>
+      <div class="sheet-actions"><button class="btn btn-secondary" data-close>Done</button></div>`;
+  };
+  const d = sheet(draw(), { wire: wire });
+  function wire(d) {
+    const err = $('#err', d);
+    const add = (name) => {
+      name = String(name || '').trim().replace(/\s+/g, ' ');
+      const rooms = roomsOf(store.job(j.id) || j);
+      if (!name) { err.hidden = false; err.textContent = 'Type a name for the spot.'; return; }
+      if (rooms.some((r) => slug(r) === slug(name))) { err.hidden = false; err.textContent = `“${name}” is already on the list.`; return; }
+      if (rooms.length >= MAX_ROOMS) { err.hidden = false; err.textContent = `At most ${MAX_ROOMS} photo spots.`; return; }
+      store.addRoom(j.id, name); toast(`Added ${name}`);
+      slotIndex.set(`${j.id}:${type}`, rooms.length); slotIndex.delete(`${j.id}:${type}:done`); // photograph the new spot next
+      setTimeout(() => repaint(d), 50);
+    };
+    $('#addspot', d).onsubmit = (e) => { e.preventDefault(); add($('#spotname', d).value); };
+    on(d, '[data-add]', 'click', (e, b) => add(b.dataset.add));
+    on(d, '[data-rm]', 'click', (e, b) => { store.removeRoom(j.id, b.dataset.rm); toast(`Removed ${b.dataset.rm}`); setTimeout(() => repaint(d), 50); });
+  }
+  function repaint(d) {
+    d.innerHTML = `<div class="sheet-grab" aria-hidden="true"></div>${draw()}`;
+    $$('[data-close]', d).forEach((b) => b.addEventListener('click', () => d.close()));
+    wire(d);
+    $('#spotname', d)?.focus();
+  }
+  d.addEventListener('close', redraw); // the capture screen re-reads the list (and keeps its place)
 }
 
 // ── materials ───────────────────────────────────────────
@@ -302,7 +362,7 @@ async function newProblem(id, q) {
   const draft = (await store.getDraft(draftKey)) || {};
   let category = q.get('cat') || draft.category || '', area = draft.area || '';
   let blob = (await store.getDraftBlob(draftKey)) || null, preview = blob ? URL.createObjectURL(blob) : null;
-  const AREAS = [...MATERIAL_AREAS, 'Whole property'];
+  const AREAS = [...roomsOf(j), 'Whole property'];
   return {
     title: 'Report a problem', back: `#/jobs/${enc(id)}/problems`,
     body: `<p class="lead">${esc(address(j))}</p>
@@ -402,7 +462,7 @@ async function done(id, q, me) {
 async function reportDetail(id, q, me) {
   const j = await getJob(id);
   const admin = me.role === 'admin', p = progress(j);
-  const pairs = PHOTO_ROOMS.map((r) => [r, j.photos?.[r]?.beforePath, j.photos?.[r]?.afterPath]);
+  const pairs = roomsOf(j).map((r) => [r, j.photos?.[r]?.beforePath, j.photos?.[r]?.afterPath]);
   const gallery = pairs.flatMap(([r, b, a], k) => [b && { src: b, label: `${k + 1}. ${r} · Before` }, a && { src: a, label: `${k + 1}. ${r} · After` }]).filter(Boolean);
   const cell = (src, label, r, k) => src ? `<button class="cmp-photo" data-g="${gallery.findIndex((g) => g.src === src)}" aria-label="${esc(r)} ${label}">${photoImg(src, `${r} ${label}`)}<span>${label}</span></button>`
     : `<div class="cmp-photo none">${icon('image_not_supported')}<span>${label}</span></div>`;
@@ -419,7 +479,7 @@ async function reportDetail(id, q, me) {
       <section class="card stat-list">${kv('Property', esc(address(j)))}${kv('Job ID', `<span class="mono">${esc(jobNo(j))}</span>`)}
         ${kv('Date', fmtDate(j.reportGeneratedAt || j.submittedAt))}${kv('Employee', esc(j.assignedTo || '—'))}${kv('Status', chip(j))}
         ${j.personName ? kv('Person in charge', esc(j.personName + (j.personPhone ? ` (${j.personPhone})` : ''))) : ''}</section>
-      ${p.before < 8 || p.after < 8 ? `<p class="notice warn">${icon('warning')}Photos incomplete: before ${p.before}/8, after ${p.after}/8.</p>` : ''}
+      ${!p.photos || p.before < p.photos || p.after < p.photos ? `<p class="notice warn">${icon('warning')}Photos incomplete: before ${p.before}/${p.photos}, after ${p.after}/${p.photos}.</p>` : ''}
       <h3 class="section-title">Before &amp; after</h3>
       <div class="cmp-list">${pairs.map(([r, b, a], k) => `<div class="cmp-row"><h4>${k + 1}. ${esc(r)}</h4><div class="cmp-pair">${cell(b, 'Before', r, k)}${cell(a, 'After', r, k)}</div></div>`).join('')}</div>
       <h3 class="section-title">Materials <span>${mats.length}</span></h3>

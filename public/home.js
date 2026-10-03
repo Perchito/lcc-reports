@@ -70,8 +70,8 @@ function employeeHome(me) {
       <span class="label">${started(current) ? 'Continue job' : 'Next job'}</span>
       <div class="job-card-top"><div class="grow"><h3>${esc(line1(current))}</h3><p>${esc(line2(current))}</p></div>${chip(current)}</div>
       <span class="mono">${esc(jobNo(current))}</span>
-      <dl class="mini-stats"><div><dt>Before photos</dt><dd>${p.before}/8</dd></div><div><dt>Materials</dt><dd>${materialCount(current)}</dd></div>
-        <div><dt>Problems</dt><dd>${current.problems?.length || 0}</dd></div><div><dt>After photos</dt><dd>${p.after}/8</dd></div></dl>
+      <dl class="mini-stats"><div><dt>Before photos</dt><dd>${p.before}/${p.photos}</dd></div><div><dt>Materials</dt><dd>${materialCount(current)}</dd></div>
+        <div><dt>Problems</dt><dd>${current.problems?.length || 0}</dd></div><div><dt>After photos</dt><dd>${p.after}/${p.photos}</dd></div></dl>
       ${progressBar(p.pct, 'Job progress')}
       <div class="continue-foot"><span>${p.pct}% complete</span><span class="cta">${started(current) ? 'Continue' : 'Open'}: ${esc(ns.label)} ${icon('arrow_forward')}</span></div></a>`;
   }
@@ -107,7 +107,7 @@ function dashboard(me) {
   const open = jobs.filter(isOpen);
   const awaiting = by('Awaiting Review');
   const inProgress = [...by('In Progress'), ...by('Awaiting After Photos')];
-  const missingAfter = open.filter((j) => photoCount(j, 'before') === 8 && photoCount(j, 'after') < 8);
+  const missingAfter = open.filter((j) => { const p = progress(j); return p.photos && p.before === p.photos && p.after < p.photos; });
   const problems = open.reduce((n, j) => n + (j.problems?.length || 0), 0);
   const unassigned = open.filter((j) => !j.assignedTo);
   const actions = [

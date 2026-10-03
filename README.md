@@ -39,6 +39,16 @@ Navigation: phones and tablets get a bottom tab bar (Home · Jobs · Reports · 
 screens; focused screens (photo capture, materials, review, …) hide it and show Back. From
 1024px a sidebar replaces the tabs and admins get a sortable jobs table.
 
+## Photo spots
+
+Each job has its own list of photo spots (`job.rooms`); one before and one after photo per spot,
+paired by name. The admin sets them when creating the job (starts with the standard 8: remove any,
+add your own, "Standard 8" / "Clear all"). On site anyone working on the job can add a spot, or remove
+one that has no photos yet, from the photo screen ("Add or remove") — offline too. Counts, progress,
+the review checklist, the report and the PDF all follow the job's list. Jobs created before this
+existed (no `rooms` field) keep the standard 8. API: `POST /api/jobs/:id/rooms {name}`,
+`DELETE /api/jobs/:id/rooms/:slug`; photo URLs use the spot's slug (a number still works for old clients).
+
 ## Offline & sync
 
 - After sign-in, the user's jobs are cached in **IndexedDB** (keyed by user, wiped on sign-out).

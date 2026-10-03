@@ -269,9 +269,9 @@ function more() {
       on(v, '#out', 'click', logout);
       on(v, '#help', 'click', () => sheet(`<h2>Help</h2>
         <ol class="help-list"><li><b>Open your job</b> from Home or Jobs and tap <b>Start job</b>.</li>
-        <li>Take the <b>8 before photos</b> — one per room, the app walks you through them.</li>
+        <li>Take the <b>before photos</b> — one per photo spot, the app walks you through them. Need another spot? Add it on the photo screen.</li>
         <li>Record <b>materials</b> and <b>report problems</b> as you work.</li>
-        <li>Take the <b>8 after photos</b> from the same spots.</li><li><b>Review</b> and <b>submit</b>. The admin gets your report.</li></ol>
+        <li>Take the <b>after photos</b> from the same spots.</li><li><b>Review</b> and <b>submit</b>. The admin gets your report.</li></ol>
         <p class="muted">No signal? Keep going — everything is saved on your phone and sends itself when you're back online. Check <b>Sync &amp; offline</b> to see what's waiting.</p>
         <div class="sheet-actions"><button class="btn btn-primary" data-close>Got it</button></div>`));
       on(v, '#about', 'click', () => sheet(`<div class="center">${logo(80)}</div><h2 class="center">LCC Property Reports</h2>
