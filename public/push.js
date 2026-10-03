@@ -19,9 +19,9 @@ const keyBytes = (b64) => { const s = atob(b64.replace(/-/g, '+').replace(/_/g, 
 
 /** Must be called from a tap (browsers only ask for permission after a user action). */
 export async function enablePush() {
-  if (await Notification.requestPermission() !== 'granted') throw new Error('Notifications are blocked — allow them in Settings for this app.');
+  if (await Notification.requestPermission() !== 'granted') throw new Error('Las notificaciones están bloqueadas — permítelas en Ajustes para esta app.');
   const { key } = await api('/api/push/key');
-  if (!key) throw new Error('Notifications are not set up on the server yet.');
+  if (!key) throw new Error('Las notificaciones aún no están configuradas en el servidor.');
   const reg = await navigator.serviceWorker.ready;
   const sub = (await reg.pushManager.getSubscription()) || (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(key) }));
   await api('/api/push/subscribe', { method: 'POST', body: { subscription: sub.toJSON() } });

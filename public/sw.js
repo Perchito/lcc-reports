@@ -43,8 +43,8 @@ self.addEventListener('fetch', (e) => {
 // ── push notifications ──
 self.addEventListener('push', (e) => {
   let d = {};
-  try { d = e.data?.json() || {}; } catch { d = { title: 'LCC Reports', body: e.data?.text() }; }
-  e.waitUntil(self.registration.showNotification(d.title || 'LCC Reports', {
+  try { d = e.data?.json() || {}; } catch { d = { title: 'LCC Informes', body: e.data?.text() }; }
+  e.waitUntil(self.registration.showNotification(d.title || 'LCC Informes', {
     body: d.body || '', tag: d.tag, renotify: !!d.tag, icon: '/img/icon-192.png', badge: '/img/icon-192.png', data: { url: d.url || '/#/home' },
   }));
 });

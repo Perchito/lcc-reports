@@ -85,7 +85,7 @@ export async function reset() {
 }
 
 // ── talking to the server ───────────────────────────────
-export class Offline extends Error { constructor() { super('No connection — you can keep working, changes will sync automatically.'); this.offline = true; } }
+export class Offline extends Error { constructor() { super('Sin conexión — puedes seguir trabajando, los cambios se sincronizarán solos.'); this.offline = true; } }
 
 /** fetch + JSON for online-only actions (login, team, new job, PDFs). */
 export async function api(path, { method = 'GET', body, raw } = {}) {
@@ -96,8 +96,8 @@ export async function api(path, { method = 'GET', body, raw } = {}) {
   try { res = await fetch(path, init); } catch { setReachable(false); throw new Offline(); }
   setReachable(true);
   const data = await res.json().catch(() => ({}));
-  if (res.status === 401 && path !== '/api/login') { window.dispatchEvent(new Event('lcc:logged-out')); throw new Error('Please sign in again'); }
-  if (!res.ok) throw Object.assign(new Error(data.error || `Something went wrong (${res.status})`), { status: res.status });
+  if (res.status === 401 && path !== '/api/login') { window.dispatchEvent(new Event('lcc:logged-out')); throw new Error('Vuelve a iniciar sesión'); }
+  if (!res.ok) throw Object.assign(new Error(data.error || `Algo salió mal (${res.status})`), { status: res.status });
   return data;
 }
 function setReachable(v) {
@@ -219,7 +219,7 @@ async function send(o) {
     case 'create': return api('/api/jobs', { method: 'POST', body: b });
     case 'patch': return api(base, { method: 'PATCH', body: b });
     case 'photo':
-      if (!blob) throw Object.assign(new Error('The photo is missing on this device — take it again'), { status: 410 });
+      if (!blob) throw Object.assign(new Error('La foto ya no está en este móvil — vuelve a hacerla'), { status: 410 });
       return api(`${base}/photos/${enc(typeof b.room === 'number' ? b.room : slug(b.room))}/${b.type}`, { method: 'PUT', raw: blob });
     case 'photoDel': return api(`${base}/photos/${enc(typeof b.room === 'number' ? b.room : slug(b.room))}/${b.type}`, { method: 'DELETE' });
     case 'roomAdd': return api(`${base}/rooms`, { method: 'POST', body: b });
@@ -270,7 +270,7 @@ export async function flush() {
       } catch (e) {
         if (e.offline) { retryTimer = setTimeout(flush, retryDelay); retryDelay = Math.min(retryDelay * 2, 60_000); return; }
         if (!e.status || e.status >= 500 || e.status === 429 || e.status === 401) { // server trouble / signed out: keep it, try later
-          sync.error = e.status === 401 ? 'Sign in again to send your saved work.' : 'The server had a problem — your work is safe and will be retried.';
+          sync.error = e.status === 401 ? 'Vuelve a iniciar sesión para enviar tu trabajo guardado.' : 'El servidor tuvo un problema — tu trabajo está a salvo y se volverá a intentar.';
           retryTimer = setTimeout(flush, retryDelay); retryDelay = Math.min(retryDelay * 2, 60_000);
           return;
         }
@@ -304,7 +304,7 @@ export function slotState(jobId, room, type) {
   return sync.sendingId === o.id ? 'uploading' : 'queued';
 }
 export const slotOp = (jobId, room, type) => ops.find((x) => x.id === `slot:${canon(jobId)}:${slug(room)}:${type}`);
-export const OP_LABEL = { roomAdd: 'New photo spot', roomDel: 'Removed photo spot', create: 'New job', patch: 'Job update', photo: 'Photo', photoDel: 'Photo removal', matAdd: 'New material', matEdit: 'Material change', matDel: 'Material removal', problem: 'Problem report' };
+export const OP_LABEL = { roomAdd: 'Nueva zona de fotos', roomDel: 'Zona de fotos quitada', create: 'Nuevo trabajo', patch: 'Cambio en el trabajo', photo: 'Foto', photoDel: 'Foto borrada', matAdd: 'Nuevo material', matEdit: 'Cambio de material', matDel: 'Material quitado', problem: 'Problema comunicado' };
 
 // ── drafts (forms in progress) and the employee list, per user, wiped on sign-out ──
 export const getDraft = (key) => kvGet(`draft:${me.id}:${key}`);

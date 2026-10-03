@@ -1,9 +1,9 @@
 {
   "id": "/",
-  "name": "LCC Property Reports",
-  "short_name": "LCC Reports",
-  "description": "LCC Bathrooms & Services Ltd — jobs, before & after photos, materials, problems and property condition reports. Works offline.",
-  "lang": "en-GB",
+  "name": "LCC Informes de obra",
+  "short_name": "LCC Informes",
+  "description": "LCC Bathrooms & Services Ltd — trabajos, fotos de antes y después, materiales, problemas e informes de la vivienda. Funciona sin conexión.",
+  "lang": "es",
   "start_url": "/#/home",
   "scope": "/",
   "display": "standalone",
@@ -17,9 +17,9 @@
     { "src": "/img/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ],
   "shortcuts": [
-    { "name": "Jobs", "url": "/#/jobs", "icons": [{ "src": "/img/icon-192.png", "sizes": "192x192" }] },
-    { "name": "Reports", "url": "/#/reports", "icons": [{ "src": "/img/icon-192.png", "sizes": "192x192" }] },
-    { "name": "Report a problem", "short_name": "Problem", "url": "/#/report-problem", "icons": [{ "src": "/img/icon-192.png", "sizes": "192x192" }] },
-    { "name": "New job (admin)", "short_name": "New job", "url": "/#/new", "icons": [{ "src": "/img/icon-192.png", "sizes": "192x192" }] }
+    { "name": "Trabajos", "url": "/#/jobs", "icons": [{ "src": "/img/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Informes", "url": "/#/reports", "icons": [{ "src": "/img/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Comunicar un problema", "short_name": "Problema", "url": "/#/report-problem", "icons": [{ "src": "/img/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Nuevo trabajo (admin)", "short_name": "Nuevo trabajo", "url": "/#/new", "icons": [{ "src": "/img/icon-192.png", "sizes": "192x192" }] }
   ]
 }

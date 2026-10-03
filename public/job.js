@@ -3,7 +3,7 @@
 // so every screen here works with no signal.
 import {
   esc, icon, on, $, $$, go, redraw, chip, empty, progressBar, photoImg, toast, sheet, confirmSheet, viewer, pickPhoto,
-  line1, line2, jobNo, fmtDate, ago, logo,
+  line1, line2, jobNo, fmtDate, ago, logo, tr,
 } from './ui.js?v=__V__';
 import * as store from './store.js?v=__V__';
 import {
@@ -12,7 +12,7 @@ import {
 } from './jobs.mjs?v=__V__';
 
 const enc = encodeURIComponent;
-const notFound = () => Object.assign(new Error('This job could not be found. It may have been reassigned.'), { status: 404 });
+const notFound = () => Object.assign(new Error('No se encontró este trabajo. Puede que se haya reasignado.'), { status: 404 });
 async function getJob(id) {
   const j = store.job(id) || (await store.loadJob(id));
   if (!j) throw store.sync.reachable ? notFound() : new store.Offline();
@@ -27,7 +27,7 @@ async function fetchPdf(j) {
   if (hit?.stamp === stamp) return hit.blob;
   const res = await fetch(`/api/jobs/${enc(j.id)}/pdf`).catch(() => null);
   if (!res) throw new store.Offline();
-  if (!res.ok) throw new Error("The report couldn't be generated — try again");
+  if (!res.ok) throw new Error('No se pudo generar el informe — inténtalo de nuevo');
   const blob = await res.blob();
   pdfCache.set(j.id, { stamp, blob });
   return blob;
@@ -42,20 +42,20 @@ export async function downloadPdf(j) {
 export async function sharePdf(j) {
   const file = new File([await fetchPdf(j)], pdfName(j), { type: 'application/pdf' });
   if (navigator.canShare?.({ files: [file] })) {
-    try { await navigator.share({ files: [file], title: `LCC report — ${address(j)} (${j.id})` }); } catch (e) { if (e.name !== 'AbortError') throw e; }
+    try { await navigator.share({ files: [file], title: `Informe LCC — ${address(j)} (${j.id})` }); } catch (e) { if (e.name !== 'AbortError') throw e; }
   } else await downloadPdf(j); // no native share (most desktops): download instead
 }
 export const pdfActions = (j, small = false) => `
-  <button class="btn btn-secondary ${small ? 'btn-sm' : ''}" data-pdf="download" data-job="${esc(j.id)}">${icon('download')} Download PDF</button>
-  <button class="btn btn-secondary ${small ? 'btn-sm' : ''}" data-pdf="share" data-job="${esc(j.id)}">${icon('ios_share')} Share</button>`;
+  <button class="btn btn-secondary ${small ? 'btn-sm' : ''}" data-pdf="download" data-job="${esc(j.id)}">${icon('download')} Descargar PDF</button>
+  <button class="btn btn-secondary ${small ? 'btn-sm' : ''}" data-pdf="share" data-job="${esc(j.id)}">${icon('ios_share')} Compartir</button>`;
 export function wirePdfActions(root) {
   on(root, '[data-pdf]', 'click', async (e, b) => {
     const j = store.job(b.dataset.job);
     if (!j) return;
     const label = b.innerHTML;
-    b.disabled = true; b.innerHTML = `<span class="spin" aria-hidden="true"></span> Generating…`;
+    b.disabled = true; b.innerHTML = `<span class="spin" aria-hidden="true"></span> Generando…`;
     try { await (b.dataset.pdf === 'share' ? sharePdf(j) : downloadPdf(j)); }
-    catch (ex) { toast(ex.offline ? 'Reports need a connection — try again when you’re online' : ex.message, 'bad'); }
+    catch (ex) { toast(ex.offline ? 'Los informes necesitan conexión — inténtalo cuando tengas cobertura' : ex.message, 'bad'); }
     b.disabled = false; b.innerHTML = label;
   });
 }
@@ -71,47 +71,47 @@ async function details(id, q, me) {
   const mats = materialList(j).length, probs = j.problems?.length || 0;
   const reportDone = !!j.submittedAt || j.status === STATUS.adminReviewed;
   let footer = '';
-  if (admin && !j.assignedTo && isOpen(j)) footer = `<a class="btn btn-primary btn-lg" href="${base}/edit">${icon('person_add')} Assign employee</a>`;
-  else if (ns.step === 'start' && !admin) footer = `<button class="btn btn-primary btn-lg" id="start">${icon('play_arrow')} Start job</button>`;
+  if (admin && !j.assignedTo && isOpen(j)) footer = `<a class="btn btn-primary btn-lg" href="${base}/edit">${icon('person_add')} Asignar empleado</a>`;
+  else if (ns.step === 'start' && !admin) footer = `<button class="btn btn-primary btn-lg" id="start">${icon('play_arrow')} Empezar trabajo</button>`;
   else if (ns.step === 'report') footer = `<a class="btn btn-primary btn-lg" href="#/reports/${esc(id)}">${icon(admin ? 'fact_check' : 'description')} ${ns.label}</a>`;
-  else if (ns.step !== 'start') footer = `<a class="btn btn-primary btn-lg" href="${base}/${ns.step}">${ns.step === 'review' ? icon('fact_check') : icon('photo_camera')} ${p.pct > 0 ? 'Continue: ' : ''}${ns.label} ${icon('arrow_forward')}</a>`;
+  else if (ns.step !== 'start') footer = `<a class="btn btn-primary btn-lg" href="${base}/${ns.step}">${ns.step === 'review' ? icon('fact_check') : icon('photo_camera')} ${p.pct > 0 ? 'Continuar: ' : ''}${ns.label} ${icon('arrow_forward')}</a>`;
 
   return {
-    title: 'Job details', back: '#/jobs', live: true, side: 'jobs',
-    actions: admin ? `<button class="icon-btn" id="menu" aria-label="Job options">${icon('more_horiz')}</button>` : '',
+    title: 'Detalles del trabajo', back: '#/jobs', live: true, side: 'jobs',
+    actions: admin ? `<button class="icon-btn" id="menu" aria-label="Opciones del trabajo">${icon('more_horiz')}</button>` : '',
     body: `
       <section class="job-hero">${chip(j)}<h2>${esc(line1(j))}</h2><p>${esc(line2(j))}</p>
         <div class="job-meta"><span class="mono">${esc(jobNo(j))}</span><span>${icon('event')}${fmtDate(j.createdAt)}</span>${j.assignedTo ? `<span>${icon('person')}${esc(j.assignedTo)}</span>` : ''}</div></section>
-      ${j.pendingCreate ? `<p class="notice">${icon('schedule_send')}<span>New job saved on this device. It gets its Job ID and reaches ${j.assignedTo ? esc(j.assignedTo) : 'the team'} when you're back online.</span></p>` : ''}
-      ${waiting && !j.pendingCreate ? `<p class="notice">${icon('cloud_upload')}${waiting} change${waiting === 1 ? '' : 's'} saved on this device ${store.sync.reachable ? '— syncing…' : '— will sync when you’re back online'}</p>` : ''}
-      <section class="card progress-card"><div class="row-between"><h3 class="label">Job progress</h3><b class="big-pct">${p.pct}%</b></div>
-        ${progressBar(p.pct, 'Job progress')}<p class="muted">${p.done} of ${p.total} stages complete${isOpen(j) ? ` · Next: <b>${esc(ns.label)}</b>` : ''}</p></section>
+      ${j.pendingCreate ? `<p class="notice">${icon('schedule_send')}<span>Trabajo nuevo guardado en este móvil. Recibirá su número y llegará a ${j.assignedTo ? esc(j.assignedTo) : 'el equipo'} cuando vuelvas a tener conexión.</span></p>` : ''}
+      ${waiting && !j.pendingCreate ? `<p class="notice">${icon('cloud_upload')}${waiting} cambio${waiting === 1 ? '' : 's'} guardado${waiting === 1 ? '' : 's'} en este móvil ${store.sync.reachable ? '— sincronizando…' : '— se sincronizará cuando vuelvas a tener conexión'}</p>` : ''}
+      <section class="card progress-card"><div class="row-between"><h3 class="label">Progreso del trabajo</h3><b class="big-pct">${p.pct}%</b></div>
+        ${progressBar(p.pct, 'Progreso del trabajo')}<p class="muted">${p.done} de ${p.total} etapas completadas${isOpen(j) ? ` · Siguiente: <b>${esc(ns.label)}</b>` : ''}</p></section>
       <section class="flow">
-        ${step(`${base}/photos/before`, 'photo_camera', 'Before photos', p.photos ? `${p.before} / ${p.photos} completed` : 'Add photo spots', p.photos && p.before === p.photos ? 'done' : p.before ? 'part' : 'todo')}
-        ${step(`${base}/materials`, 'inventory_2', 'Materials', mats ? `${mats} item${mats === 1 ? '' : 's'}` : 'None recorded yet', mats ? 'done' : 'todo')}
-        ${step(`${base}/problems`, 'report_problem', 'Problems', probs ? `${probs} reported` : 'None reported', probs ? 'warn' : 'todo')}
-        ${step(`${base}/photos/after`, 'add_a_photo', 'After photos', p.photos ? `${p.after} / ${p.photos} completed` : 'Add photo spots', p.photos && p.after === p.photos ? 'done' : p.after ? 'part' : 'todo')}
-        ${reportDone || j.reportGeneratedAt ? step(`#/reports/${esc(id)}`, 'description', 'Report', reportDone ? displayStatus(j) : 'Generated — not submitted', reportDone ? 'done' : 'part')
-          : step(`${base}/review`, 'fact_check', 'Review & submit', 'Check everything, then send', 'todo')}
+        ${step(`${base}/photos/before`, 'photo_camera', 'Fotos antes', p.photos ? `${p.before} / ${p.photos} hechas` : 'Añade zonas de fotos', p.photos && p.before === p.photos ? 'done' : p.before ? 'part' : 'todo')}
+        ${step(`${base}/materials`, 'inventory_2', 'Materiales', mats ? `${mats} material${mats === 1 ? '' : 'es'}` : 'Ninguno anotado aún', mats ? 'done' : 'todo')}
+        ${step(`${base}/problems`, 'report_problem', 'Problemas', probs ? `${probs} comunicado${probs === 1 ? '' : 's'}` : 'Ninguno comunicado', probs ? 'warn' : 'todo')}
+        ${step(`${base}/photos/after`, 'add_a_photo', 'Fotos después', p.photos ? `${p.after} / ${p.photos} hechas` : 'Añade zonas de fotos', p.photos && p.after === p.photos ? 'done' : p.after ? 'part' : 'todo')}
+        ${reportDone || j.reportGeneratedAt ? step(`#/reports/${esc(id)}`, 'description', 'Informe', reportDone ? tr(displayStatus(j)) : 'Generado — sin enviar', reportDone ? 'done' : 'part')
+          : step(`${base}/review`, 'fact_check', 'Revisar y enviar', 'Comprueba todo y envíalo', 'todo')}
       </section>
-      <section class="card info-card"><h3 class="label">Property</h3>
+      <section class="card info-card"><h3 class="label">Vivienda</h3>
         <div class="info-line">${icon('home')}<span>${esc(address(j))}</span></div>
-        <div class="info-line">${icon('key')}<span>Key safe PIN: <b id="pin">${j.keySafePin ? '••••' : 'Not set'}</b></span>
-          ${j.keySafePin ? `<button class="btn btn-text btn-sm" id="eye" aria-pressed="false">${icon('visibility')} Show</button>` : ''}</div>
-        ${j.personName ? `<div class="info-line">${icon('person')}<span>${esc(j.personName)} <small class="muted">· Person in charge</small></span></div>` : ''}
-        ${j.personPhone || j.personEmail ? `<div class="btn-row">${j.personPhone ? `<a class="btn btn-secondary" href="tel:${esc(j.personPhone)}">${icon('call')} Call</a>` : ''}${j.personEmail ? `<a class="btn btn-secondary" href="mailto:${esc(j.personEmail)}">${icon('mail')} Email</a>` : ''}</div>` : ''}
-        <a class="btn btn-text" href="https://maps.apple.com/?q=${enc(address(j))}" target="_blank" rel="noopener">${icon('map')} Open in Maps</a>
+        <div class="info-line">${icon('key')}<span>PIN caja de llaves: <b id="pin">${j.keySafePin ? '••••' : 'Sin PIN'}</b></span>
+          ${j.keySafePin ? `<button class="btn btn-text btn-sm" id="eye" aria-pressed="false">${icon('visibility')} Ver</button>` : ''}</div>
+        ${j.personName ? `<div class="info-line">${icon('person')}<span>${esc(j.personName)} <small class="muted">· Persona de contacto</small></span></div>` : ''}
+        ${j.personPhone || j.personEmail ? `<div class="btn-row">${j.personPhone ? `<a class="btn btn-secondary" href="tel:${esc(j.personPhone)}">${icon('call')} Llamar</a>` : ''}${j.personEmail ? `<a class="btn btn-secondary" href="mailto:${esc(j.personEmail)}">${icon('mail')} Correo</a>` : ''}</div>` : ''}
+        <a class="btn btn-text" href="https://maps.apple.com/?q=${enc(address(j))}" target="_blank" rel="noopener">${icon('map')} Abrir en Mapas</a>
       </section>`,
     footer,
     mount(v, f) {
       let shown = false;
-      on(v, '#eye', 'click', (e, b) => { shown = !shown; $('#pin', v).textContent = shown ? j.keySafePin : '••••'; b.innerHTML = `${icon(shown ? 'visibility_off' : 'visibility')} ${shown ? 'Hide' : 'Show'}`; b.setAttribute('aria-pressed', shown); });
+      on(v, '#eye', 'click', (e, b) => { shown = !shown; $('#pin', v).textContent = shown ? j.keySafePin : '••••'; b.innerHTML = `${icon(shown ? 'visibility_off' : 'visibility')} ${shown ? 'Ocultar' : 'Ver'}`; b.setAttribute('aria-pressed', shown); });
       on(f, '#start', 'click', () => startJob(j));
       on(document, '#menu', 'click', () => sheet(`<h2>${esc(line1(j))}</h2><div class="list-card">
-        <a class="list-row" href="${base}/edit" data-close>${icon('edit')}<span>Edit details &amp; assignment</span></a>
-        <a class="list-row" href="${base}/review" data-close>${icon('fact_check')}<span>Review checklist</span></a>
-        <a class="list-row" href="#/reports/${esc(id)}" data-close>${icon('description')}<span>View report</span></a></div>
-        <div class="sheet-actions"><button class="btn btn-secondary" data-close>Close</button></div>`));
+        <a class="list-row" href="${base}/edit" data-close>${icon('edit')}<span>Editar datos y asignación</span></a>
+        <a class="list-row" href="${base}/review" data-close>${icon('fact_check')}<span>Lista de revisión</span></a>
+        <a class="list-row" href="#/reports/${esc(id)}" data-close>${icon('description')}<span>Ver informe</span></a></div>
+        <div class="sheet-actions"><button class="btn btn-secondary" data-close>Cerrar</button></div>`));
       store.loadJob(id).catch(() => {}); // freshen in the background
     },
   };
@@ -119,7 +119,7 @@ async function details(id, q, me) {
 
 function startJob(j) {
   if ([STATUS.draft, STATUS.readyToStart, STATUS.assigned].includes(j.status)) store.patch(j.id, { status: STATUS.workInProgress });
-  toast('Job started');
+  toast('Trabajo empezado');
   go(`#/jobs/${enc(j.id)}/photos/before`);
 }
 
@@ -129,7 +129,7 @@ async function photos(id, type, q, me) {
   const j = await getJob(id);
   const rooms = roomsOf(j), total = rooms.length;
   const before = type === 'before', key = `${id}:${type}`;
-  const title = before ? 'Before photos' : 'After photos', back = `#/jobs/${enc(id)}`;
+  const title = before ? 'Fotos antes' : 'Fotos después', back = `#/jobs/${enc(id)}`;
   const has = (r) => !!j.photos?.[r]?.[`${type}Path`];
   const go_ = (k) => { slotIndex.set(key, k); slotIndex.delete(`${key}:done`); redraw(); };
   const editSpots = () => spotsSheet(j, type);
@@ -137,8 +137,8 @@ async function photos(id, type, q, me) {
   if (!total) {
     return {
       title, back, live: true,
-      body: `<div class="state-card">${icon('add_a_photo')}<h2>No photo spots yet</h2><p>Add the places you'll photograph — the same spots are used for the before and after photos.</p></div>`,
-      footer: `<button class="btn btn-primary btn-lg" id="spots">${icon('add')} Add photo spots</button>`,
+      body: `<div class="state-card">${icon('add_a_photo')}<h2>Aún no hay zonas de fotos</h2><p>Añade los sitios que vas a fotografiar — se usan las mismas zonas para las fotos de antes y de después.</p></div>`,
+      footer: `<button class="btn btn-primary btn-lg" id="spots">${icon('add')} Añadir zonas de fotos</button>`,
       mount: (v, f) => on(f, '#spots', 'click', editSpots),
     };
   }
@@ -153,23 +153,23 @@ async function photos(id, type, q, me) {
   const states = rooms.map((r) => store.slotState(id, r, type));
   const up = { uploaded: rooms.filter((r, k) => has(r) && !states[k]).length, queued: states.filter((x) => x === 'queued').length, uploading: states.filter((x) => x === 'uploading').length, failed: states.filter((x) => x === 'failed').length };
   const cur = states[i], done = n === total && slotIndex.get(`${key}:done`);
-  const spotsBtn = `<button class="icon-btn" id="spots" aria-label="Edit photo spots">${icon('edit_location_alt')}</button>`;
+  const spotsBtn = `<button class="icon-btn" id="spots" aria-label="Editar zonas de fotos">${icon('edit_location_alt')}</button>`;
 
   if (done) {
     return {
       title, back, live: true,
-      body: `<div class="state-card success">${icon('task_alt')}<h2>${n} / ${total} ${before ? 'before' : 'after'} photos complete</h2>
-        <p>${up.queued + up.uploading ? `${up.queued + up.uploading} still uploading — they're safe on this phone and will finish by themselves.` : 'All photos are uploaded.'}</p>
-        <button class="btn btn-text" id="again">${icon('grid_view')} Check the photos again</button>
-        <button class="btn btn-text" id="spots2">${icon('add_location_alt')} Add another photo spot</button></div>`,
+      body: `<div class="state-card success">${icon('task_alt')}<h2>${n} / ${total} fotos ${before ? 'antes' : 'después'} completadas</h2>
+        <p>${up.queued + up.uploading ? `${up.queued + up.uploading} aún subiéndose — están a salvo en este móvil y terminarán solas.` : 'Todas las fotos están subidas.'}</p>
+        <button class="btn btn-text" id="again">${icon('grid_view')} Revisar las fotos</button>
+        <button class="btn btn-text" id="spots2">${icon('add_location_alt')} Añadir otra zona</button></div>`,
       footer: before
-        ? `<a class="btn btn-primary btn-lg" href="${back}">${icon('arrow_forward')} Continue to job</a>`
-        : `<a class="btn btn-primary btn-lg" href="${back}/review">Continue to review ${icon('arrow_forward')}</a>`,
+        ? `<a class="btn btn-primary btn-lg" href="${back}">${icon('arrow_forward')} Volver al trabajo</a>`
+        : `<a class="btn btn-primary btn-lg" href="${back}/review">Ir a revisar ${icon('arrow_forward')}</a>`,
       mount: (v) => { on(v, '#again', 'click', () => go_(0)); on(v, '#spots2', 'click', editSpots); },
     };
   }
-  const badge = { queued: ['schedule', 'Saved on phone · waiting to upload'], uploading: ['cloud_upload', 'Uploading…'], failed: ['error', 'Upload failed'] }[cur]
-    || (path ? ['cloud_done', 'Uploaded'] : null);
+  const badge = { queued: ['schedule', 'Guardada en el móvil · pendiente de subir'], uploading: ['cloud_upload', 'Subiendo…'], failed: ['error', 'Error al subir'] }[cur]
+    || (path ? ['cloud_done', 'Subida'] : null);
   const ref = !before && j.photos?.[room]?.beforePath; // after photos: show the before shot to match the angle
   const lastMissing = rooms.every((r, k) => k === i || has(r));
 
@@ -178,32 +178,32 @@ async function photos(id, type, q, me) {
     actions: `<span class="hdr-count">${n}/${total}</span>${spotsBtn}`,
     body: `
       <div class="capture">
-        <div class="capture-head"><span class="label">${before ? 'Before' : 'After'} · ${i + 1} of ${total}</span><h2>${esc(room)}</h2></div>
+        <div class="capture-head"><span class="label">${before ? 'Antes' : 'Después'} · ${i + 1} de ${total}</span><h2>${esc(tr(room))}</h2></div>
         <div class="frame ${path ? 'has-photo' : ''}" id="frame">
-          ${path ? `${photoImg(path, `${room} ${type} photo`)}<button class="frame-btn del" id="del" aria-label="Delete photo">${icon('delete')}</button>
-              <button class="frame-btn zoom" id="zoom" aria-label="View full screen">${icon('open_in_full')}</button>`
-            : `<button class="frame-empty" id="shoot2">${icon('photo_camera')}<span>Tap to take the ${esc(room)} photo</span></button>`}
+          ${path ? `${photoImg(path, `Foto ${before ? 'antes' : 'después'} de ${tr(room)}`)}<button class="frame-btn del" id="del" aria-label="Borrar foto">${icon('delete')}</button>
+              <button class="frame-btn zoom" id="zoom" aria-label="Ver a pantalla completa">${icon('open_in_full')}</button>`
+            : `<button class="frame-empty" id="shoot2">${icon('photo_camera')}<span>Toca para hacer la foto de ${esc(tr(room))}</span></button>`}
           ${badge ? `<span class="frame-badge b-${cur || 'done'}">${icon(badge[0])}${badge[1]}</span>` : ''}
-          ${ref ? `<button class="frame-ref" id="ref" aria-label="View the before photo">${photoImg(ref, 'Before photo')}<span>Before</span></button>` : ''}
+          ${ref ? `<button class="frame-ref" id="ref" aria-label="Ver la foto de antes">${photoImg(ref, 'Foto de antes')}<span>Antes</span></button>` : ''}
         </div>
-        ${cur === 'failed' ? `<div class="notice bad">${icon('error')}<div><b>Photo upload failed</b><br>The photo is safely saved on this device. ${esc(store.slotOp(id, room, type)?.error || '')}
-            <div class="btn-row"><button class="btn btn-secondary btn-sm" id="retry">Retry</button></div></div></div>` : ''}
-        <div class="dots" role="tablist" aria-label="Photo spots" style="--cols:${Math.min(total, 8)};--cols-sm:${Math.min(total, 4)}">${rooms.map((r, k) => `
-          <button class="dot ${k === i ? 'cur' : ''} ${has(r) ? 'has' : ''} ${states[k] === 'failed' ? 'fail' : ''}" data-i="${k}" role="tab" aria-selected="${k === i}" aria-label="${k + 1}. ${esc(r)}${has(r) ? ', done' : ''}">${has(r) ? icon('check') : k + 1}</button>`).join('')}</div>
-        <button class="btn btn-text btn-sm spots-link" id="spots3">${icon('edit_location_alt')} ${total} photo spot${total === 1 ? '' : 's'} · Add or remove</button>
+        ${cur === 'failed' ? `<div class="notice bad">${icon('error')}<div><b>Error al subir la foto</b><br>La foto está guardada a salvo en este móvil. ${esc(store.slotOp(id, room, type)?.error || '')}
+            <div class="btn-row"><button class="btn btn-secondary btn-sm" id="retry">Reintentar</button></div></div></div>` : ''}
+        <div class="dots" role="tablist" aria-label="Zonas de fotos" style="--cols:${Math.min(total, 8)};--cols-sm:${Math.min(total, 4)}">${rooms.map((r, k) => `
+          <button class="dot ${k === i ? 'cur' : ''} ${has(r) ? 'has' : ''} ${states[k] === 'failed' ? 'fail' : ''}" data-i="${k}" role="tab" aria-selected="${k === i}" aria-label="${k + 1}. ${esc(tr(r))}${has(r) ? ', hecha' : ''}">${has(r) ? icon('check') : k + 1}</button>`).join('')}</div>
+        <button class="btn btn-text btn-sm spots-link" id="spots3">${icon('edit_location_alt')} ${total} zona${total === 1 ? '' : 's'} de fotos · Añadir o quitar</button>
         ${up.queued + up.uploading + up.failed ? `<p class="upload-line" aria-live="polite">${icon('cloud_upload')} ${up.uploaded} uploaded · ${up.uploading} uploading · ${up.queued} waiting${up.failed ? ` · <b class="bad-text">${up.failed} failed</b>` : ''}</p>` : ''}
       </div>`,
     footer: path
-      ? `<div class="btn-row"><button class="btn btn-secondary btn-lg" id="shoot">${icon('replay')} Retake</button>
-          <button class="btn btn-primary btn-lg" id="next">${i === total - 1 || (n === total && lastMissing) ? 'Finish' : 'Next'} ${icon('arrow_forward')}</button></div>`
-      : `<div class="btn-row"><button class="btn btn-secondary btn-lg icon-only" id="lib" aria-label="Choose from photo library">${icon('photo_library')}</button>
-          <button class="btn btn-primary btn-lg grow" id="shoot">${icon('photo_camera')} Take photo</button></div>`,
+      ? `<div class="btn-row"><button class="btn btn-secondary btn-lg" id="shoot">${icon('replay')} Repetir</button>
+          <button class="btn btn-primary btn-lg" id="next">${i === total - 1 || (n === total && lastMissing) ? 'Terminar' : 'Siguiente'} ${icon('arrow_forward')}</button></div>`
+      : `<div class="btn-row"><button class="btn btn-secondary btn-lg icon-only" id="lib" aria-label="Elegir de la fototeca">${icon('photo_library')}</button>
+          <button class="btn btn-primary btn-lg grow" id="shoot">${icon('photo_camera')} Hacer foto</button></div>`,
     mount(v, f) {
       const take = async (camera) => {
         const blob = await pickPhoto({ camera });
         if (!blob) return;
         await store.photo(id, room, type, blob);
-        toast('Photo captured');
+        toast('Foto hecha');
       };
       on(f, '#shoot', 'click', () => take(true));
       on(v, '#shoot2', 'click', () => take(true));
@@ -212,10 +212,10 @@ async function photos(id, type, q, me) {
       on(v, '#spots3', 'click', editSpots);
       on(v, '#retry', 'click', () => store.retry(store.slotOp(id, room, type)?.id));
       on(v, '[data-i]', 'click', (e, b) => go_(Number(b.dataset.i)));
-      on(v, '#del', 'click', async () => { if (await confirmSheet({ title: 'Delete photo?', text: `The ${type} photo for ${room} will be removed.`, ok: 'Delete photo', danger: true })) store.deletePhoto(id, room, type); });
-      const all = rooms.map((r, k) => ({ src: j.photos?.[r]?.[`${type}Path`], label: `${k + 1}. ${r} · ${before ? 'Before' : 'After'}` })).filter((x) => x.src);
+      on(v, '#del', 'click', async () => { if (await confirmSheet({ title: '¿Borrar foto?', text: `Se borrará la foto ${before ? 'de antes' : 'de después'} de ${tr(room)}.`, ok: 'Borrar foto', danger: true })) store.deletePhoto(id, room, type); });
+      const all = rooms.map((r, k) => ({ src: j.photos?.[r]?.[`${type}Path`], label: `${k + 1}. ${tr(r)} · ${before ? 'Antes' : 'Después'}` })).filter((x) => x.src);
       on(v, '#zoom', 'click', () => viewer(all, all.findIndex((x) => x.src === path)));
-      on(v, '#ref', 'click', () => viewer([{ src: ref, label: `${room} · Before` }]));
+      on(v, '#ref', 'click', () => viewer([{ src: ref, label: `${tr(room)} · Antes` }]));
       on(f, '#next', 'click', () => {
         const nextMissing = rooms.findIndex((r, k) => k > i && !has(r));
         if (nextMissing >= 0) return go_(nextMissing);
@@ -237,15 +237,15 @@ function spotsSheet(j, type) {
   const draw = () => {
     const cur = store.job(j.id) || j, rooms = roomsOf(cur);
     const taken = (r) => !!(cur.photos?.[r]?.beforePath || cur.photos?.[r]?.afterPath);
-    return `<h2>Photo spots</h2><p class="muted">The same spots are used for before and after photos. ${rooms.length} on this job.</p>
-      <div class="list-card spots-list">${rooms.map((r, k) => `<div class="list-row static"><span class="spot-no">${k + 1}</span><span>${esc(r)}</span>
-        ${taken(r) ? `<span class="row-meta">${icon('photo_camera')}</span>` : `<button class="icon-btn danger" data-rm="${esc(r)}" aria-label="Remove ${esc(r)}">${icon('remove_circle_outline')}</button>`}</div>`).join('')
-        || '<p class="muted" style="padding:16px">No spots yet.</p>'}</div>
-      <form id="addspot" class="add-spot" novalidate><input id="spotname" placeholder="e.g. Hallway, Garden, Kitchen (Side 3)" autocomplete="off" enterkeyhint="done" aria-label="New photo spot name">
-        <button class="btn btn-primary">${icon('add')} Add</button></form>
-      ${PHOTO_ROOMS.some((r) => !rooms.some((x) => slug(x) === slug(r))) ? `<p class="small muted">Quick add:</p><div class="chips wrap suggest">${PHOTO_ROOMS.filter((r) => !rooms.some((x) => slug(x) === slug(r))).map((r) => `<button type="button" class="chip-btn" data-add="${esc(r)}">${icon('add')}${esc(r)}</button>`).join('')}</div>` : ''}
+    return `<h2>Zonas de fotos</h2><p class="muted">Se usan las mismas zonas para las fotos de antes y de después. ${rooms.length} en este trabajo.</p>
+      <div class="list-card spots-list">${rooms.map((r, k) => `<div class="list-row static"><span class="spot-no">${k + 1}</span><span>${esc(tr(r))}</span>
+        ${taken(r) ? `<span class="row-meta">${icon('photo_camera')}</span>` : `<button class="icon-btn danger" data-rm="${esc(r)}" aria-label="Quitar ${esc(tr(r))}">${icon('remove_circle_outline')}</button>`}</div>`).join('')
+        || '<p class="muted" style="padding:16px">Aún no hay zonas.</p>'}</div>
+      <form id="addspot" class="add-spot" novalidate><input id="spotname" placeholder="p. ej. Pasillo, Jardín, Cocina (lado 3)" autocomplete="off" enterkeyhint="done" aria-label="Nombre de la nueva zona">
+        <button class="btn btn-primary">${icon('add')} Añadir</button></form>
+      ${PHOTO_ROOMS.some((r) => !rooms.some((x) => slug(x) === slug(r))) ? `<p class="small muted">Añadir rápido:</p><div class="chips wrap suggest">${PHOTO_ROOMS.filter((r) => !rooms.some((x) => slug(x) === slug(r))).map((r) => `<button type="button" class="chip-btn" data-add="${esc(r)}">${icon('add')}${esc(tr(r))}</button>`).join('')}</div>` : ''}
       <p class="form-error" id="err" role="alert" hidden></p>
-      <div class="sheet-actions"><button class="btn btn-secondary" data-close>Done</button></div>`;
+      <div class="sheet-actions"><button class="btn btn-secondary" data-close>Listo</button></div>`;
   };
   const d = sheet(draw(), { wire: wire });
   function wire(d) {
@@ -253,16 +253,16 @@ function spotsSheet(j, type) {
     const add = (name) => {
       name = String(name || '').trim().replace(/\s+/g, ' ');
       const rooms = roomsOf(store.job(j.id) || j);
-      if (!name) { err.hidden = false; err.textContent = 'Type a name for the spot.'; return; }
-      if (rooms.some((r) => slug(r) === slug(name))) { err.hidden = false; err.textContent = `“${name}” is already on the list.`; return; }
-      if (rooms.length >= MAX_ROOMS) { err.hidden = false; err.textContent = `At most ${MAX_ROOMS} photo spots.`; return; }
-      store.addRoom(j.id, name); toast(`Added ${name}`);
+      if (!name) { err.hidden = false; err.textContent = 'Escribe un nombre para la zona.'; return; }
+      if (rooms.some((r) => slug(r) === slug(name))) { err.hidden = false; err.textContent = `“${tr(name)}” ya está en la lista.`; return; }
+      if (rooms.length >= MAX_ROOMS) { err.hidden = false; err.textContent = `Como máximo ${MAX_ROOMS} zonas de fotos.`; return; }
+      store.addRoom(j.id, name); toast(`${tr(name)} añadida`);
       slotIndex.set(`${j.id}:${type}`, rooms.length); slotIndex.delete(`${j.id}:${type}:done`); // photograph the new spot next
       setTimeout(() => repaint(d), 50);
     };
     $('#addspot', d).onsubmit = (e) => { e.preventDefault(); add($('#spotname', d).value); };
     on(d, '[data-add]', 'click', (e, b) => add(b.dataset.add));
-    on(d, '[data-rm]', 'click', (e, b) => { store.removeRoom(j.id, b.dataset.rm); toast(`Removed ${b.dataset.rm}`); setTimeout(() => repaint(d), 50); });
+    on(d, '[data-rm]', 'click', (e, b) => { store.removeRoom(j.id, b.dataset.rm); toast(`${tr(b.dataset.rm)} quitada`); setTimeout(() => repaint(d), 50); });
   }
   function repaint(d) {
     d.innerHTML = `<div class="sheet-grab" aria-hidden="true"></div>${draw()}`;
@@ -275,7 +275,7 @@ function spotsSheet(j, type) {
 
 // ── materials ───────────────────────────────────────────
 const MAT_STATUS_IC = { 'To Order': ['amber', 'shopping_cart'], Ordered: ['blue', 'local_shipping'], Received: ['purple', 'inventory'], Installed: ['green', 'check_circle'] };
-const matChip = (s) => { const [tone, ic] = MAT_STATUS_IC[s] || MAT_STATUS_IC['To Order']; return `<span class="chip chip-${tone}">${icon(ic)}${esc(s)}</span>`; };
+const matChip = (s) => { const [tone, ic] = MAT_STATUS_IC[s] || MAT_STATUS_IC['To Order']; return `<span class="chip chip-${tone}">${icon(ic)}${esc(tr(s))}</span>`; };
 const qty = (n) => (Number(n) % 1 === 0 ? String(Math.trunc(n)) : String(n));
 
 async function materials(id, q, me) {
@@ -283,14 +283,14 @@ async function materials(id, q, me) {
   const list = materialList(j);
   const byArea = MATERIAL_AREAS.map((a) => [a, list.filter((m) => m.area === a)]).filter(([, items]) => items.length);
   return {
-    title: 'Materials', back: `#/jobs/${enc(id)}`, live: true,
+    title: 'Materiales', back: `#/jobs/${enc(id)}`, live: true,
     body: `<p class="lead">${esc(address(j))}</p>
-      ${byArea.length ? byArea.map(([area, items]) => `<h3 class="section-title">${esc(area)} <span>${items.length}</span></h3>
+      ${byArea.length ? byArea.map(([area, items]) => `<h3 class="section-title">${esc(tr(area))} <span>${items.length}</span></h3>
         <div class="card-list">${items.map((m) => `<button class="card mat-card" data-mid="${esc(m.id)}">
           <div class="grow"><b>${esc(m.description)}</b>${m.specification ? `<small>${esc(m.specification)}</small>` : ''}</div>
-          <div class="mat-side"><span class="qty">${qty(m.quantity)} ${esc(m.unit)}</span>${matChip(m.status)}</div></button>`).join('')}</div>`).join('')
-        : empty('inventory_2', 'No materials yet', 'Add the materials used or needed for this job.')}`,
-    footer: `<button class="btn btn-primary btn-lg" id="add">${icon('add')} Add material</button>`,
+          <div class="mat-side"><span class="qty">${qty(m.quantity)} ${esc(tr(m.unit))}</span>${matChip(m.status)}</div></button>`).join('')}</div>`).join('')
+        : empty('inventory_2', 'Aún no hay materiales', 'Añade los materiales usados o necesarios para este trabajo.')}`,
+    footer: `<button class="btn btn-primary btn-lg" id="add">${icon('add')} Añadir material</button>`,
     mount(v, f) {
       on(f, '#add', 'click', () => materialSheet(j, me));
       on(v, '[data-mid]', 'click', (e, b) => materialSheet(j, me, list.find((m) => m.id === b.dataset.mid)));
@@ -299,34 +299,34 @@ async function materials(id, q, me) {
 }
 
 function materialSheet(j, me, m = null) {
-  const opts = (list, cur) => list.map((x) => `<option ${x === cur ? 'selected' : ''}>${esc(x)}</option>`).join('');
+  const opts = (list, cur) => list.map((x) => `<option value="${esc(x)}" ${x === cur ? 'selected' : ''}>${esc(tr(x))}</option>`).join('');
   const canDelete = m && (me.role === 'admin' || m.createdBy === me.email);
-  sheet(`<form novalidate><h2>${m ? 'Edit material' : 'Add material'}</h2>
-    <label class="field"><span>Area</span><select id="area">${opts(MATERIAL_AREAS, m?.area)}</select></label>
-    <label class="field"><span>Description</span><input id="desc" value="${esc(m?.description || '')}" placeholder="e.g. Wickes white tiles" autocomplete="off" required></label>
-    <label class="field"><span>Specification / notes <small>(optional)</small></span><input id="spec" value="${esc(m?.specification || '')}" placeholder="e.g. 300 × 600, gloss" autocomplete="off"></label>
-    <div class="field-row"><label class="field"><span>Quantity</span><span class="stepper"><button type="button" class="icon-btn" data-step="-1" aria-label="Less">${icon('remove')}</button>
-        <input id="qty" type="number" inputmode="decimal" min="0" step="any" value="${esc(m ? qty(m.quantity) : '1')}"><button type="button" class="icon-btn" data-step="1" aria-label="More">${icon('add')}</button></span></label>
-      <label class="field"><span>Unit</span><select id="unit">${opts(MATERIAL_UNITS, m?.unit)}</select></label></div>
-    <fieldset class="field"><legend>Status</legend><div class="segmented">${MATERIAL_STATUSES.map((s) => `<label><input type="radio" name="st" value="${esc(s)}" ${(m?.status || 'To Order') === s ? 'checked' : ''}><span>${esc(s)}</span></label>`).join('')}</div></fieldset>
+  sheet(`<form novalidate><h2>${m ? 'Editar material' : 'Añadir material'}</h2>
+    <label class="field"><span>Zona</span><select id="area">${opts(MATERIAL_AREAS, m?.area)}</select></label>
+    <label class="field"><span>Descripción</span><input id="desc" value="${esc(m?.description || '')}" placeholder="p. ej. Azulejos blancos Wickes" autocomplete="off" required></label>
+    <label class="field"><span>Especificación / notas <small>(opcional)</small></span><input id="spec" value="${esc(m?.specification || '')}" placeholder="p. ej. 300 × 600, brillo" autocomplete="off"></label>
+    <div class="field-row"><label class="field"><span>Cantidad</span><span class="stepper"><button type="button" class="icon-btn" data-step="-1" aria-label="Menos">${icon('remove')}</button>
+        <input id="qty" type="number" inputmode="decimal" min="0" step="any" value="${esc(m ? qty(m.quantity) : '1')}"><button type="button" class="icon-btn" data-step="1" aria-label="Más">${icon('add')}</button></span></label>
+      <label class="field"><span>Unidad</span><select id="unit">${opts(MATERIAL_UNITS, m?.unit)}</select></label></div>
+    <fieldset class="field"><legend>Estado</legend><div class="segmented">${MATERIAL_STATUSES.map((s) => `<label><input type="radio" name="st" value="${esc(s)}" ${(m?.status || 'To Order') === s ? 'checked' : ''}><span>${esc(tr(s))}</span></label>`).join('')}</div></fieldset>
     <p class="form-error" id="err" role="alert" hidden></p>
-    <div class="sheet-actions"><button class="btn btn-primary btn-lg">Save material</button>
-      ${canDelete ? `<button type="button" class="btn btn-text danger" id="del">${icon('delete')} Delete material</button>` : `<button type="button" class="btn btn-secondary" data-close>Cancel</button>`}</div></form>`, {
+    <div class="sheet-actions"><button class="btn btn-primary btn-lg">Guardar material</button>
+      ${canDelete ? `<button type="button" class="btn btn-text danger" id="del">${icon('delete')} Borrar material</button>` : `<button type="button" class="btn btn-secondary" data-close>Cancelar</button>`}</div></form>`, {
     wire(d) {
       if (!m) setTimeout(() => $('#desc', d).focus(), 250);
       on(d, '[data-step]', 'click', (e, b) => { const q = $('#qty', d); q.value = Math.max(0, (Number(q.value) || 0) + Number(b.dataset.step)); });
       $('form', d).addEventListener('submit', (e) => {
         e.preventDefault();
         const description = $('#desc', d).value.trim();
-        if (!description) { const err = $('#err', d); err.hidden = false; err.textContent = 'Add a description'; $('#desc', d).focus(); return; }
+        if (!description) { const err = $('#err', d); err.hidden = false; err.textContent = 'Añade una descripción'; $('#desc', d).focus(); return; }
         const fields = { description, specification: $('#spec', d).value.trim(), quantity: Number($('#qty', d).value) || 1, unit: $('#unit', d).value, status: $('input[name=st]:checked', d).value };
         const area = $('#area', d).value;
         if (m) store.editMaterial(j.id, m.id, { ...fields, area }); else store.addMaterial(j.id, area, fields);
-        d.close(); toast(m ? 'Material saved' : 'Material added');
+        d.close(); toast(m ? 'Material guardado' : 'Material añadido');
       });
       on(d, '#del', 'click', async () => {
         d.close();
-        if (await confirmSheet({ title: 'Delete material?', text: m.description, ok: 'Delete', danger: true })) { store.deleteMaterial(j.id, m.id); toast('Material deleted'); }
+        if (await confirmSheet({ title: '¿Borrar material?', text: m.description, ok: 'Borrar', danger: true })) { store.deleteMaterial(j.id, m.id); toast('Material borrado'); }
       });
     },
   });
@@ -334,23 +334,22 @@ function materialSheet(j, me, m = null) {
 
 // ── problems ────────────────────────────────────────────
 const PROBLEM_IC = { 'Missing material': 'inventory_2', "Can't access property": 'lock', 'Damaged item': 'broken_image', 'Extra work required': 'construction', 'Problem with property': 'house', 'Photo problem': 'no_photography', Other: 'help_outline' };
-const PROBLEM_LABEL = { 'Problem with property': 'Property problem' };
 export const problemCard = (j, p) => `<article class="card problem-card">
   <span class="prob-ic">${icon(PROBLEM_IC[p.category] || 'warning')}</span>
-  <div class="grow"><b>${esc(PROBLEM_LABEL[p.category] || p.category)}</b>${p.area ? `<span class="muted"> · ${esc(p.area)}</span>` : ''}
-    <p>${esc(p.description)}</p><small class="muted">${esc(p.createdBy || '')} · ${p.createdAt ? `${ago(p.createdAt)}` : ''}${p.photoPath ? ` · ${icon('photo')} Photo attached` : ''}</small></div>
-  ${p.photoPath ? `<button class="thumb" data-photo="${esc(p.photoPath)}" aria-label="View problem photo">${photoImg(p.photoPath)}</button>` : ''}
+  <div class="grow"><b>${esc(tr(p.category))}</b>${p.area ? `<span class="muted"> · ${esc(tr(p.area))}</span>` : ''}
+    <p>${esc(p.description)}</p><small class="muted">${esc(p.createdBy || '')} · ${p.createdAt ? `${ago(p.createdAt)}` : ''}${p.photoPath ? ` · ${icon('photo')} Foto adjunta` : ''}</small></div>
+  ${p.photoPath ? `<button class="thumb" data-photo="${esc(p.photoPath)}" aria-label="Ver foto del problema">${photoImg(p.photoPath)}</button>` : ''}
 </article>`;
-const wireProblemPhotos = (v) => on(v, '[data-photo]', 'click', (e, b) => viewer([{ src: b.dataset.photo, label: 'Problem photo' }]));
+const wireProblemPhotos = (v) => on(v, '[data-photo]', 'click', (e, b) => viewer([{ src: b.dataset.photo, label: 'Foto del problema' }]));
 
 async function problems(id) {
   const j = await getJob(id);
   const list = [...(j.problems || [])].reverse();
   return {
-    title: 'Problems', back: `#/jobs/${enc(id)}`, live: true,
+    title: 'Problemas', back: `#/jobs/${enc(id)}`, live: true,
     body: `<p class="lead">${esc(address(j))}</p>${list.length ? `<div class="card-list">${list.map((p) => problemCard(j, p)).join('')}</div>`
-      : empty('verified_user', 'No problems reported', 'If something stops the work or needs the admin’s attention, report it here.')}`,
-    footer: isOpen(j) ? `<a class="btn btn-primary btn-lg" href="#/jobs/${enc(id)}/problems/new">${icon('report_problem')} Report a problem</a>` : '',
+      : empty('verified_user', 'Ningún problema comunicado', 'Si algo impide el trabajo o necesita la atención del administrador, comunícalo aquí.')}`,
+    footer: isOpen(j) ? `<a class="btn btn-primary btn-lg" href="#/jobs/${enc(id)}/problems/new">${icon('report_problem')} Comunicar un problema</a>` : '',
     mount: wireProblemPhotos,
   };
 }
@@ -364,21 +363,21 @@ async function newProblem(id, q) {
   let blob = (await store.getDraftBlob(draftKey)) || null, preview = blob ? URL.createObjectURL(blob) : null;
   const AREAS = [...roomsOf(j), 'Whole property'];
   return {
-    title: 'Report a problem', back: `#/jobs/${enc(id)}/problems`,
+    title: 'Comunicar un problema', back: `#/jobs/${enc(id)}/problems`,
     body: `<p class="lead">${esc(address(j))}</p>
-      <fieldset class="field"><legend>What happened?</legend><div class="tiles">${PROBLEM_CATEGORIES.map((c) => `
-        <label class="tile"><input type="radio" name="cat" value="${esc(c)}" ${c === category ? 'checked' : ''}><span>${icon(PROBLEM_IC[c])}${esc(PROBLEM_LABEL[c] || c)}</span></label>`).join('')}</div></fieldset>
-      <fieldset class="field"><legend>Where? <small>(optional)</small></legend><div class="chips wrap">${AREAS.map((a) => `<button type="button" class="chip-btn ${a === area ? 'on' : ''}" data-area="${esc(a)}" aria-pressed="${a === area}">${esc(a)}</button>`).join('')}</div></fieldset>
-      <label class="field"><span>Describe the problem</span><textarea id="desc" rows="4" placeholder="e.g. Bathroom tiles are short by 2 boxes.">${esc(draft.description || '')}</textarea></label>
-      <div class="field"><span class="field-label">Photo <small>(optional)</small></span><div id="ph"></div></div>
+      <fieldset class="field"><legend>¿Qué ha pasado?</legend><div class="tiles">${PROBLEM_CATEGORIES.map((c) => `
+        <label class="tile"><input type="radio" name="cat" value="${esc(c)}" ${c === category ? 'checked' : ''}><span>${icon(PROBLEM_IC[c])}${esc(tr(c))}</span></label>`).join('')}</div></fieldset>
+      <fieldset class="field"><legend>¿Dónde? <small>(opcional)</small></legend><div class="chips wrap">${AREAS.map((a) => `<button type="button" class="chip-btn ${a === area ? 'on' : ''}" data-area="${esc(a)}" aria-pressed="${a === area}">${esc(tr(a))}</button>`).join('')}</div></fieldset>
+      <label class="field"><span>Describe el problema</span><textarea id="desc" rows="4" placeholder="p. ej. Faltan 2 cajas de azulejos para el baño.">${esc(draft.description || '')}</textarea></label>
+      <div class="field"><span class="field-label">Foto <small>(opcional)</small></span><div id="ph"></div></div>
       <p class="form-error" id="err" role="alert" hidden></p>`,
-    footer: `<button class="btn btn-primary btn-lg" id="send">${icon('send')} Send to admin</button>`,
+    footer: `<button class="btn btn-primary btn-lg" id="send">${icon('send')} Enviar al administrador</button>`,
     mount(v, f) {
       const save = () => store.saveDraft(draftKey, { category, area, description: $('#desc', v).value });
       const paintPhoto = () => {
         $('#ph', v).innerHTML = preview
-          ? `<div class="photo-preview"><img src="${preview}" alt="Problem photo"><button class="frame-btn del" id="rm" aria-label="Remove photo">${icon('close')}</button></div>`
-          : `<div class="btn-row"><button type="button" class="btn btn-secondary" id="cam">${icon('photo_camera')} Take photo</button><button type="button" class="btn btn-secondary" id="lib">${icon('photo_library')} Add photo</button></div>`;
+          ? `<div class="photo-preview"><img src="${preview}" alt="Foto del problema"><button class="frame-btn del" id="rm" aria-label="Quitar foto">${icon('close')}</button></div>`
+          : `<div class="btn-row"><button type="button" class="btn btn-secondary" id="cam">${icon('photo_camera')} Hacer foto</button><button type="button" class="btn btn-secondary" id="lib">${icon('photo_library')} Elegir foto</button></div>`;
         on(v, '#cam', 'click', () => add(true)); on(v, '#lib', 'click', () => add(false));
         on(v, '#rm', 'click', () => { URL.revokeObjectURL(preview); blob = preview = null; store.saveDraftBlob(draftKey, null); paintPhoto(); });
       };
@@ -389,10 +388,10 @@ async function newProblem(id, q) {
       on(v, '#desc', 'input', save);
       on(f, '#send', 'click', () => {
         const description = $('#desc', v).value.trim(), err = $('#err', v);
-        if (!category || !description) { err.hidden = false; err.textContent = !category ? 'Choose what happened.' : 'Describe the problem.'; (category ? $('#desc', v) : $('input[name=cat]', v)).focus(); return; }
+        if (!category || !description) { err.hidden = false; err.textContent = !category ? 'Elige qué ha pasado.' : 'Describe el problema.'; (category ? $('#desc', v) : $('input[name=cat]', v)).focus(); return; }
         store.addProblem(id, { category, area: area === 'Whole property' ? 'Whole property' : area, description }, blob);
         store.clearDraft(draftKey); store.saveDraftBlob(draftKey, null);
-        toast(store.sync.reachable ? 'Problem reported' : 'Problem saved — it will send when you’re online');
+        toast(store.sync.reachable ? 'Problema comunicado' : 'Problema guardado — se enviará cuando tengas conexión');
         location.replace(`#/jobs/${enc(id)}/problems`);
       });
     },
@@ -406,21 +405,21 @@ async function review(id, q, me) {
   if (j.submittedAt) return { redirect: `#/reports/${enc(id)}` };
   const items = reviewChecklist(j), ready = items.every((c) => c.ok), waiting = store.pending(id).length;
   return {
-    title: 'Review report', back: `#/jobs/${enc(id)}`, live: true,
+    title: 'Revisar informe', back: `#/jobs/${enc(id)}`, live: true,
     body: `<p class="lead">${esc(address(j))}</p>
-      <div class="state-banner ${ready ? 'ok' : 'warn'}">${icon(ready ? 'task_alt' : 'pending_actions')}<div><b>${ready ? 'Everything is ready' : 'Report not ready'}</b>
-        <p>${ready ? `Check the details below, then ${admin ? 'generate' : 'submit'} the report.` : 'Finish the items marked below first.'}</p></div></div>
+      <div class="state-banner ${ready ? 'ok' : 'warn'}">${icon(ready ? 'task_alt' : 'pending_actions')}<div><b>${ready ? 'Todo listo' : 'El informe no está listo'}</b>
+        <p>${ready ? `Revisa los datos de abajo y ${admin ? 'genera' : 'envía'} el informe.` : 'Primero termina los puntos marcados abajo.'}</p></div></div>
       <div class="checklist">${items.map((c) => `<div class="check ${c.ok ? 'ok' : 'todo'}">${icon(c.ok ? 'check_circle' : 'error')}
         <div class="grow"><b>${c.label}</b><small>${esc(c.detail)}</small></div>
-        ${c.ok ? (c.fix === 'materials' || c.fix === 'problems' ? `<a class="btn btn-text btn-sm" href="#/jobs/${enc(id)}/${c.fix}">View</a>` : '')
-          : `<a class="btn btn-secondary btn-sm" href="#/jobs/${enc(id)}/${c.fix}">Fix this ${icon('arrow_forward')}</a>`}</div>`).join('')}</div>
-      ${waiting ? `<p class="notice">${icon('cloud_upload')}${waiting} change${waiting === 1 ? ' is' : 's are'} still on this phone. They'll be sent before the report.</p>` : ''}`,
-    footer: `<button class="btn btn-primary btn-lg" id="submit" ${ready ? '' : 'disabled'}>${icon(admin ? 'picture_as_pdf' : 'send')} ${admin ? 'Generate report' : 'Submit report'}</button>`,
+        ${c.ok ? (c.fix === 'materials' || c.fix === 'problems' ? `<a class="btn btn-text btn-sm" href="#/jobs/${enc(id)}/${c.fix}">Ver</a>` : '')
+          : `<a class="btn btn-secondary btn-sm" href="#/jobs/${enc(id)}/${c.fix}">Arreglar ${icon('arrow_forward')}</a>`}</div>`).join('')}</div>
+      ${waiting ? `<p class="notice">${icon('cloud_upload')}${waiting === 1 ? 'Hay 1 cambio' : `Hay ${waiting} cambios`} todavía en este móvil. Se enviarán antes que el informe.</p>` : ''}`,
+    footer: `<button class="btn btn-primary btn-lg" id="submit" ${ready ? '' : 'disabled'}>${icon(admin ? 'picture_as_pdf' : 'send')} ${admin ? 'Generar informe' : 'Enviar informe'}</button>`,
     mount(v, f) {
       on(f, '#submit', 'click', async () => {
-        const ok = await confirmSheet({ title: admin ? 'Generate report?' : 'Submit report?', ok: admin ? 'Generate report' : 'Submit report',
+        const ok = await confirmSheet({ title: admin ? '¿Generar informe?' : '¿Enviar informe?', ok: admin ? 'Generar informe' : 'Enviar informe',
           detail: `<div class="confirm-detail">${icon('home')}<div><b>${esc(line1(j))}</b><br>${esc(line2(j))}<br><span class="mono">${esc(jobNo(j))}</span></div></div>`,
-          text: admin ? 'The job will be marked complete.' : 'All required information has been completed. The admin will review it.' });
+          text: admin ? 'El trabajo se marcará como completado.' : 'Toda la información necesaria está completa. El administrador lo revisará.' });
         if (!ok) return;
         const now = new Date().toISOString();
         store.patch(id, { status: STATUS.reportGenerated, reportGeneratedAt: j.reportGeneratedAt || now, ...(admin ? {} : { submittedAt: now }) });
@@ -436,22 +435,22 @@ async function done(id, q, me) {
   const waiting = store.pending(id).length, online = store.sync.reachable;
   const ready = !waiting && online;
   return {
-    title: 'Report', back: `#/jobs/${enc(id)}`, live: true,
-    body: `<div class="state-card success">${icon('task_alt')}<h2>${me.role === 'admin' ? 'Report generated' : 'Report submitted'}</h2>
+    title: 'Informe', back: `#/jobs/${enc(id)}`, live: true,
+    body: `<div class="state-card success">${icon('task_alt')}<h2>${me.role === 'admin' ? 'Informe generado' : 'Informe enviado'}</h2>
         <p>${esc(line1(j))}, ${esc(line2(j))}<br><span class="mono">${esc(jobNo(j))}</span></p></div>
-      <div class="card pdf-card" id="pdf">${ready ? `<div class="pdf-state"><span class="spin" aria-hidden="true"></span><b>Generating report…</b></div>`
-        : `<div class="pdf-state">${icon('cloud_upload')}<div><b>Saved on this phone</b><p class="muted">${online ? 'Sending now…' : 'It will be sent automatically when you’re back online.'} The PDF will be ready after that.</p></div></div>`}</div>`,
-    footer: `<a class="btn btn-secondary btn-lg" href="#/home">${icon('home')} Back to home</a>`,
+      <div class="card pdf-card" id="pdf">${ready ? `<div class="pdf-state"><span class="spin" aria-hidden="true"></span><b>Generando informe…</b></div>`
+        : `<div class="pdf-state">${icon('cloud_upload')}<div><b>Guardado en este móvil</b><p class="muted">${online ? 'Enviando ahora…' : 'Se enviará solo cuando vuelvas a tener conexión.'} Después estará listo el PDF.</p></div></div>`}</div>`,
+    footer: `<a class="btn btn-secondary btn-lg" href="#/home">${icon('home')} Volver al inicio</a>`,
     async mount(v) {
       if (!ready) return;
       try {
         await fetchPdf(j);
-        $('#pdf', v).innerHTML = `<div class="pdf-state">${icon('picture_as_pdf', 'ok-text')}<div><b>Report ready</b><p class="muted">${esc(j.id)}.pdf</p></div></div>
-          <div class="btn-stack">${pdfActions(j)}<a class="btn btn-text" href="#/reports/${enc(id)}">${icon('visibility')} View report</a></div>`;
+        $('#pdf', v).innerHTML = `<div class="pdf-state">${icon('picture_as_pdf', 'ok-text')}<div><b>Informe listo</b><p class="muted">${esc(j.id)}.pdf</p></div></div>
+          <div class="btn-stack">${pdfActions(j)}<a class="btn btn-text" href="#/reports/${enc(id)}">${icon('visibility')} Ver informe</a></div>`;
         wirePdfActions(v);
-        toast('PDF ready');
+        toast('PDF listo');
       } catch (e) {
-        $('#pdf', v).innerHTML = `<div class="pdf-state">${icon('error', 'bad-text')}<div><b>Couldn't generate the PDF</b><p class="muted">${esc(e.message)}</p></div></div><button class="btn btn-secondary" id="again">Try again</button>`;
+        $('#pdf', v).innerHTML = `<div class="pdf-state">${icon('error', 'bad-text')}<div><b>No se pudo generar el PDF</b><p class="muted">${esc(e.message)}</p></div></div><button class="btn btn-secondary" id="again">Reintentar</button>`;
         on(v, '#again', 'click', redraw);
       }
     },
@@ -463,41 +462,41 @@ async function reportDetail(id, q, me) {
   const j = await getJob(id);
   const admin = me.role === 'admin', p = progress(j);
   const pairs = roomsOf(j).map((r) => [r, j.photos?.[r]?.beforePath, j.photos?.[r]?.afterPath]);
-  const gallery = pairs.flatMap(([r, b, a], k) => [b && { src: b, label: `${k + 1}. ${r} · Before` }, a && { src: a, label: `${k + 1}. ${r} · After` }]).filter(Boolean);
-  const cell = (src, label, r, k) => src ? `<button class="cmp-photo" data-g="${gallery.findIndex((g) => g.src === src)}" aria-label="${esc(r)} ${label}">${photoImg(src, `${r} ${label}`)}<span>${label}</span></button>`
+  const gallery = pairs.flatMap(([r, b, a], k) => [b && { src: b, label: `${k + 1}. ${tr(r)} · Antes` }, a && { src: a, label: `${k + 1}. ${tr(r)} · Después` }]).filter(Boolean);
+  const cell = (src, label, r, k) => src ? `<button class="cmp-photo" data-g="${gallery.findIndex((g) => g.src === src)}" aria-label="${esc(tr(r))} ${label}">${photoImg(src, `${tr(r)} ${label}`)}<span>${label}</span></button>`
     : `<div class="cmp-photo none">${icon('image_not_supported')}<span>${label}</span></div>`;
   const kv = (k, v) => `<div><span>${k}</span><b>${v}</b></div>`;
   const mats = materialList(j);
   let footer = `<div class="btn-row">${pdfActions(j)}</div>`;
-  if (admin && j.submittedAt && j.status !== STATUS.adminReviewed) footer = `<div class="btn-row"><button class="btn btn-secondary btn-lg icon-only" data-pdf="download" data-job="${esc(id)}" aria-label="Download PDF">${icon('download')}</button><button class="btn btn-primary btn-lg grow" id="reviewed">${icon('verified')} Mark reviewed</button></div>`;
-  else if (!admin && !j.submittedAt && isOpen(j)) footer = `<a class="btn btn-primary btn-lg" href="#/jobs/${enc(id)}/review">${icon('fact_check')} Review &amp; submit</a>`;
+  if (admin && j.submittedAt && j.status !== STATUS.adminReviewed) footer = `<div class="btn-row"><button class="btn btn-secondary btn-lg icon-only" data-pdf="download" data-job="${esc(id)}" aria-label="Descargar PDF">${icon('download')}</button><button class="btn btn-primary btn-lg grow" id="reviewed">${icon('verified')} Marcar como revisado</button></div>`;
+  else if (!admin && !j.submittedAt && isOpen(j)) footer = `<a class="btn btn-primary btn-lg" href="#/jobs/${enc(id)}/review">${icon('fact_check')} Revisar y enviar</a>`;
   return {
-    title: 'Report', back: '#/reports', live: true, side: 'reports',
-    actions: `<a class="icon-btn" href="/api/jobs/${enc(id)}/pdf" target="_blank" rel="noopener" aria-label="View full PDF report">${icon('picture_as_pdf')}</a>`,
+    title: 'Informe', back: '#/reports', live: true, side: 'reports',
+    actions: `<a class="icon-btn" href="/api/jobs/${enc(id)}/pdf" target="_blank" rel="noopener" aria-label="Ver el informe completo en PDF">${icon('picture_as_pdf')}</a>`,
     body: `
-      <section class="report-head">${logo(56)}<div><b>LCC Bathrooms &amp; Services Ltd</b><small>Property condition / completion report</small></div></section>
-      <section class="card stat-list">${kv('Property', esc(address(j)))}${kv('Job ID', `<span class="mono">${esc(jobNo(j))}</span>`)}
-        ${kv('Date', fmtDate(j.reportGeneratedAt || j.submittedAt))}${kv('Employee', esc(j.assignedTo || '—'))}${kv('Status', chip(j))}
-        ${j.personName ? kv('Person in charge', esc(j.personName + (j.personPhone ? ` (${j.personPhone})` : ''))) : ''}</section>
-      ${!p.photos || p.before < p.photos || p.after < p.photos ? `<p class="notice warn">${icon('warning')}Photos incomplete: before ${p.before}/${p.photos}, after ${p.after}/${p.photos}.</p>` : ''}
-      <h3 class="section-title">Before &amp; after</h3>
-      <div class="cmp-list">${pairs.map(([r, b, a], k) => `<div class="cmp-row"><h4>${k + 1}. ${esc(r)}</h4><div class="cmp-pair">${cell(b, 'Before', r, k)}${cell(a, 'After', r, k)}</div></div>`).join('')}</div>
-      <h3 class="section-title">Materials <span>${mats.length}</span></h3>
-      ${mats.length ? `<div class="card table-card">${mats.map((m) => `<div class="mat-line"><div class="grow"><b>${esc(m.description)}</b><small>${esc(m.area)}${m.specification ? ` · ${esc(m.specification)}` : ''}</small></div><span class="qty">${qty(m.quantity)} ${esc(m.unit)}</span>${matChip(m.status)}</div>`).join('')}</div>`
-        : '<p class="muted">No materials recorded for this job.</p>'}
-      <h3 class="section-title">Problems <span>${j.problems?.length || 0}</span></h3>
-      ${j.problems?.length ? `<div class="card-list">${j.problems.map((pr) => problemCard(j, pr)).join('')}</div>` : '<p class="muted">No problems reported.</p>'}
-      <h3 class="section-title">Report details</h3>
-      <section class="card stat-list">${kv('Created', `${fmtDate(j.createdAt)} by ${esc(j.createdBy || '—')}`)}${kv('Report generated', fmtDate(j.reportGeneratedAt))}
-        ${kv('Submitted', j.submittedAt ? fmtDate(j.submittedAt) : 'Not yet')}${kv('Reviewed', j.reviewedAt ? fmtDate(j.reviewedAt) : j.status === STATUS.adminReviewed ? 'Yes' : 'Not yet')}</section>`,
+      <section class="report-head">${logo(56)}<div><b>LCC Bathrooms &amp; Services Ltd</b><small>Informe de estado / finalización</small></div></section>
+      <section class="card stat-list">${kv('Vivienda', esc(address(j)))}${kv('Nº trabajo', `<span class="mono">${esc(jobNo(j))}</span>`)}
+        ${kv('Fecha', fmtDate(j.reportGeneratedAt || j.submittedAt))}${kv('Empleado', esc(j.assignedTo || '—'))}${kv('Estado', chip(j))}
+        ${j.personName ? kv('Persona de contacto', esc(j.personName + (j.personPhone ? ` (${j.personPhone})` : ''))) : ''}</section>
+      ${!p.photos || p.before < p.photos || p.after < p.photos ? `<p class="notice warn">${icon('warning')}Fotos incompletas: antes ${p.before}/${p.photos}, después ${p.after}/${p.photos}.</p>` : ''}
+      <h3 class="section-title">Antes y después</h3>
+      <div class="cmp-list">${pairs.map(([r, b, a], k) => `<div class="cmp-row"><h4>${k + 1}. ${esc(tr(r))}</h4><div class="cmp-pair">${cell(b, 'Antes', r, k)}${cell(a, 'Después', r, k)}</div></div>`).join('')}</div>
+      <h3 class="section-title">Materiales <span>${mats.length}</span></h3>
+      ${mats.length ? `<div class="card table-card">${mats.map((m) => `<div class="mat-line"><div class="grow"><b>${esc(m.description)}</b><small>${esc(tr(m.area))}${m.specification ? ` · ${esc(m.specification)}` : ''}</small></div><span class="qty">${qty(m.quantity)} ${esc(tr(m.unit))}</span>${matChip(m.status)}</div>`).join('')}</div>`
+        : '<p class="muted">No hay materiales anotados en este trabajo.</p>'}
+      <h3 class="section-title">Problemas <span>${j.problems?.length || 0}</span></h3>
+      ${j.problems?.length ? `<div class="card-list">${j.problems.map((pr) => problemCard(j, pr)).join('')}</div>` : '<p class="muted">No se ha comunicado ningún problema.</p>'}
+      <h3 class="section-title">Datos del informe</h3>
+      <section class="card stat-list">${kv('Creado', `${fmtDate(j.createdAt)} por ${esc(j.createdBy || '—')}`)}${kv('Informe generado', fmtDate(j.reportGeneratedAt))}
+        ${kv('Enviado', j.submittedAt ? fmtDate(j.submittedAt) : 'Todavía no')}${kv('Revisado', j.reviewedAt ? fmtDate(j.reviewedAt) : j.status === STATUS.adminReviewed ? 'Sí' : 'Todavía no')}</section>`,
     footer,
     mount(v, f) {
       on(v, '[data-g]', 'click', (e, b) => viewer(gallery, Number(b.dataset.g)));
       wireProblemPhotos(v);
       wirePdfActions(f);
       on(f, '#reviewed', 'click', async () => {
-        if (!(await confirmSheet({ title: 'Mark as reviewed?', text: `${address(j)} — the employee will see it has been reviewed.`, ok: 'Mark reviewed' }))) return;
-        store.patch(id, { status: STATUS.adminReviewed }); toast('Marked as reviewed');
+        if (!(await confirmSheet({ title: '¿Marcar como revisado?', text: `${address(j)} — el empleado verá que se ha revisado.`, ok: 'Marcar como revisado' }))) return;
+        store.patch(id, { status: STATUS.adminReviewed }); toast('Marcado como revisado');
       });
     },
   };

@@ -27,13 +27,13 @@ async function boot() {
   route();
   refreshPush();
 }
-window.addEventListener('lcc:logged-out', () => { if (me) { me = null; safeSet('lcc-me', null); loginScreen('Your session ended — please sign in again.'); } });
+window.addEventListener('lcc:logged-out', () => { if (me) { me = null; safeSet('lcc-me', null); loginScreen('Tu sesión ha terminado — vuelve a iniciar sesión.'); } });
 
 async function logout() {
   const waiting = store.pendingCount();
   const ok = await confirmSheet(waiting
-    ? { title: 'Sign out?', text: `${waiting} change${waiting === 1 ? ' is' : 's are'} still waiting to sync and will be lost on this device. Sync first if you can.`, ok: 'Sign out anyway', danger: true }
-    : { title: 'Sign out?', ok: 'Sign out' });
+    ? { title: '¿Cerrar sesión?', text: `${waiting === 1 ? 'Hay 1 cambio pendiente' : `Hay ${waiting} cambios pendientes`} de sincronizar que se perderán en este móvil. Sincroniza antes si puedes.`, ok: 'Cerrar sesión igualmente', danger: true }
+    : { title: '¿Cerrar sesión?', ok: 'Cerrar sesión' });
   if (!ok) return;
   await disablePush(); // this phone stops getting this person's notifications
   await store.api('/api/logout', { method: 'POST' }).catch(() => {});
@@ -49,52 +49,52 @@ function loginScreen(message = '') {
   document.body.className = 'is-login';
   $app.innerHTML = `
     <main class="login">
-      <div class="login-brand">${logo(112)}<h1>LCC<span>Property Reports</span></h1></div>
+      <div class="login-brand">${logo(112)}<h1>LCC<span>Informes de obra</span></h1></div>
       <form class="login-form" novalidate>
         ${message ? `<p class="notice">${icon('info')}${esc(message)}</p>` : ''}
-        <label class="field"><span>Email</span><input id="email" type="email" inputmode="email" autocomplete="username" autocapitalize="none" spellcheck="false" required value="${esc(safeGet('lcc-email') || '')}"></label>
-        <label class="field"><span>Password</span><span class="input-wrap"><input id="pw" type="password" autocomplete="current-password" required>
-          <button type="button" class="icon-btn" id="eye" aria-label="Show password">${icon('visibility')}</button></span></label>
+        <label class="field"><span>Correo electrónico</span><input id="email" type="email" inputmode="email" autocomplete="username" autocapitalize="none" spellcheck="false" required value="${esc(safeGet('lcc-email') || '')}"></label>
+        <label class="field"><span>Contraseña</span><span class="input-wrap"><input id="pw" type="password" autocomplete="current-password" required>
+          <button type="button" class="icon-btn" id="eye" aria-label="Mostrar contraseña">${icon('visibility')}</button></span></label>
         <p class="form-error" id="err" role="alert" hidden></p>
-        <button class="btn btn-primary btn-lg" id="go">Sign in</button>
-        <button type="button" class="btn btn-text" id="forgot">Forgot password?</button>
+        <button class="btn btn-primary btn-lg" id="go">Iniciar sesión</button>
+        <button type="button" class="btn btn-text" id="forgot">¿Olvidaste tu contraseña?</button>
       </form>
       <p class="login-foot">LCC Bathrooms &amp; Services Ltd</p>
     </main>`;
   const pw = $('#pw'), err = $('#err');
   if (!$('#email').value) $('#email').focus();
-  on($app, '#eye', 'click', (e, b) => { pw.type = pw.type === 'password' ? 'text' : 'password'; b.innerHTML = icon(pw.type === 'password' ? 'visibility' : 'visibility_off'); b.setAttribute('aria-label', pw.type === 'password' ? 'Show password' : 'Hide password'); });
-  on($app, '#forgot', 'click', () => sheet(`<h2>Forgot your password?</h2><p class="muted">Ask your LCC admin to reset it. They can do it from the Team page and give you a new one straight away.</p><div class="sheet-actions"><button class="btn btn-primary" data-close>OK</button></div>`));
+  on($app, '#eye', 'click', (e, b) => { pw.type = pw.type === 'password' ? 'text' : 'password'; b.innerHTML = icon(pw.type === 'password' ? 'visibility' : 'visibility_off'); b.setAttribute('aria-label', pw.type === 'password' ? 'Mostrar contraseña' : 'Ocultar contraseña'); });
+  on($app, '#forgot', 'click', () => sheet(`<h2>¿Olvidaste tu contraseña?</h2><p class="muted">Pide al administrador de LCC que te la restablezca. Puede hacerlo desde la página Equipo y darte una nueva al momento.</p><div class="sheet-actions"><button class="btn btn-primary" data-close>Entendido</button></div>`));
   on($app, 'form', 'submit', async (e) => {
     e.preventDefault();
     const email = $('#email').value.trim();
-    if (!email || !pw.value) { err.hidden = false; err.textContent = 'Enter your email and password.'; return; }
-    const btn = $('#go'); btn.disabled = true; btn.textContent = 'Signing in…'; err.hidden = true;
+    if (!email || !pw.value) { err.hidden = false; err.textContent = 'Escribe tu correo y tu contraseña.'; return; }
+    const btn = $('#go'); btn.disabled = true; btn.textContent = 'Entrando…'; err.hidden = true;
     try {
       await store.api('/api/login', { method: 'POST', body: { email, password: pw.value } });
       safeSet('lcc-email', email);
       if (!location.hash || location.hash === '#/') history.replaceState(null, '', '#/home');
       await boot();
     } catch (ex) {
-      err.hidden = false; err.textContent = ex.offline ? 'No connection. You need internet to sign in.' : ex.message;
-      pw.value = ''; pw.focus(); btn.disabled = false; btn.textContent = 'Sign in';
+      err.hidden = false; err.textContent = ex.offline ? 'Sin conexión. Necesitas internet para iniciar sesión.' : ex.message;
+      pw.value = ''; pw.focus(); btn.disabled = false; btn.textContent = 'Iniciar sesión';
     }
   });
 }
 
 // ── shell ───────────────────────────────────────────────
-const TABS = [['home', '#/home', 'home', 'Home'], ['jobs', '#/jobs', 'work_outline', 'Jobs'], ['reports', '#/reports', 'description', 'Reports'], ['more', '#/more', 'menu', 'More']];
+const TABS = [['home', '#/home', 'home', 'Inicio'], ['jobs', '#/jobs', 'work_outline', 'Trabajos'], ['reports', '#/reports', 'description', 'Informes'], ['more', '#/more', 'menu', 'Más']];
 function shell() {
   const admin = me.role === 'admin';
   $app.innerHTML = `
     <div class="shell">
       <aside class="sidebar" aria-label="Main">
-        <div class="side-brand">${logo(40)}<div><b>LCC Reports</b><small>${admin ? 'Admin' : 'Field app'}</small></div></div>
+        <div class="side-brand">${logo(40)}<div><b>LCC Informes</b><small>${admin ? 'Administración' : 'App de campo'}</small></div></div>
         <nav class="side-nav">
-          ${TABS.slice(0, 3).map(([k, h, ic, l]) => `<a href="${h}" data-tab="${k}">${icon(ic)}<span>${k === 'home' && admin ? 'Dashboard' : l}</span></a>`).join('')}
-          ${admin ? `<a href="#/new" data-tab="new">${icon('add_home_work')}<span>New job</span></a><a href="#/team" data-tab="team">${icon('groups')}<span>Team</span></a>` : ''}
-          <a href="#/notifications" data-tab="notifications">${icon('notifications')}<span>Notifications</span><b class="badge" data-badge hidden></b></a>
-          <a href="#/more" data-tab="more">${icon('settings')}<span>Settings</span></a>
+          ${TABS.slice(0, 3).map(([k, h, ic, l]) => `<a href="${h}" data-tab="${k}">${icon(ic)}<span>${k === 'home' && admin ? 'Panel' : l}</span></a>`).join('')}
+          ${admin ? `<a href="#/new" data-tab="new">${icon('add_home_work')}<span>Nuevo trabajo</span></a><a href="#/team" data-tab="team">${icon('groups')}<span>Equipo</span></a>` : ''}
+          <a href="#/notifications" data-tab="notifications">${icon('notifications')}<span>Notificaciones</span><b class="badge" data-badge hidden></b></a>
+          <a href="#/more" data-tab="more">${icon('settings')}<span>Ajustes</span></a>
         </nav>
         <button class="side-sync" data-sync></button>
         <div class="side-user"><span class="avatar">${esc((me.name[0] || '?').toUpperCase())}</span><div><b>${esc(me.name)}</b><small>${esc(me.email)}</small></div></div>
@@ -115,7 +115,7 @@ function shell() {
     </div>`;
   $$('[data-sync]').forEach((b) => b.addEventListener('click', () => go('#/sync')));
   $$('.bottom-nav a, .side-nav a').forEach((a) => a.addEventListener('click', async (e) => {
-    if (current?.dirty?.() && !(await confirmSheet({ title: 'Discard changes?', text: "What you've typed here will be lost.", ok: 'Discard', danger: true }))) e.preventDefault();
+    if (current?.dirty?.() && !(await confirmSheet({ title: '¿Descartar cambios?', text: 'Se perderá lo que has escrito aquí.', ok: 'Descartar', danger: true }))) e.preventDefault();
   }));
   paintSync();
 }
@@ -123,12 +123,12 @@ function shell() {
 function paintSync() {
   if (!me) return;
   const s = store.sync, n = store.pendingCount(), failed = store.pending().filter((o) => o.state === 'failed').length;
-  const [cls, ic, text] = failed ? ['bad', 'error', `${failed} not sent`]
-    : !s.reachable ? ['off', 'cloud_off', n ? `Offline · ${n} waiting` : 'Offline']
-    : s.flushing && n ? ['busy', 'sync', 'Syncing…']
-    : n ? ['busy', 'upload', `${n} waiting`]
-    : ['ok', 'cloud_done', 'Synced'];
-  $$('[data-sync]').forEach((b) => { b.className = `${b.classList.contains('side-sync') ? 'side-sync' : 'sync-pill'} s-${cls}`; b.innerHTML = `${icon(ic)}<span>${text}</span>`; b.setAttribute('aria-label', `Sync status: ${text}. Open sync details`); });
+  const [cls, ic, text] = failed ? ['bad', 'error', `${failed} sin enviar`]
+    : !s.reachable ? ['off', 'cloud_off', n ? `Sin conexión · ${n} pendientes` : 'Sin conexión']
+    : s.flushing && n ? ['busy', 'sync', 'Sincronizando…']
+    : n ? ['busy', 'upload', `${n} pendientes`]
+    : ['ok', 'cloud_done', 'Sincronizado'];
+  $$('[data-sync]').forEach((b) => { b.className = `${b.classList.contains('side-sync') ? 'side-sync' : 'sync-pill'} s-${cls}`; b.innerHTML = `${icon(ic)}<span>${text}</span>`; b.setAttribute('aria-label', `Estado de sincronización: ${text}. Abrir detalles`); });
   const unread = notifications(me).filter((e) => e.at > Number(safeGet(`lcc-seen:${me.id}`) || 0)).length;
   $$('[data-badge]').forEach((b) => { b.hidden = !unread; b.textContent = unread > 9 ? '9+' : unread; });
 }
@@ -188,7 +188,7 @@ async function draw(fn, fresh) {
   // live redraws only touch what changed, so a button never disappears under a finger mid-tap
   const put = (el, html) => { if (fresh || el.dataset.html !== html) { el.innerHTML = html; el.dataset.html = html; return true; } return false; };
   $('#hdr-title').textContent = s.title ?? '';
-  put($('#hdr-back'), s.back ? `<button class="icon-btn back" aria-label="Back">${icon('arrow_back_ios_new')}</button>` : '');
+  put($('#hdr-back'), s.back ? `<button class="icon-btn back" aria-label="Atrás">${icon('arrow_back_ios_new')}</button>` : '');
   put($('#hdr-actions'), s.actions || '');
   const footChanged = put($('#footer'), s.footer || '');
   const bodyChanged = put(view, s.body);
@@ -200,13 +200,13 @@ async function draw(fn, fresh) {
   $$('[data-tab]').forEach((a) => a.toggleAttribute('aria-current', a.classList.contains('on')));
   const backBtn = $('#hdr-back .back');
   if (backBtn) backBtn.onclick = async () => {
-    if (current?.dirty?.() && !(await confirmSheet({ title: 'Discard changes?', text: "What you've typed here will be lost.", ok: 'Discard', danger: true }))) return;
+    if (current?.dirty?.() && !(await confirmSheet({ title: '¿Descartar cambios?', text: 'Se perderá lo que has escrito aquí.', ok: 'Descartar', danger: true }))) return;
     if (stack.length > 1) history.back(); else location.replace(s.back);
   };
   s.mount?.(view, $('#footer'));
   hydrate(view);
   window.scrollTo(0, scroll);
-  if (fresh) document.title = s.title ? `${s.title} · LCC Reports` : 'LCC Property Reports';
+  if (fresh) document.title = s.title ? `${s.title} · LCC Informes` : 'LCC Informes';
   paintSync();
 }
 const rerender = () => { if (drawFn) draw(drawFn, false); };
@@ -214,10 +214,10 @@ window.addEventListener('lcc:redraw', rerender);
 
 function errorScreen(e) {
   return {
-    title: 'Something went wrong', back: '#/home',
-    body: `<div class="state-card">${icon(e.offline ? 'cloud_off' : 'error')}<h2>${e.offline ? 'No connection' : "Couldn't open this"}</h2>
-      <p>${esc(e.offline ? 'This needs the internet and it isn’t on this device yet. You can keep working on jobs you’ve already opened.' : e.message)}</p>
-      <button class="btn btn-primary" data-retry>Try again</button></div>`,
+    title: 'Algo salió mal', back: '#/home',
+    body: `<div class="state-card">${icon(e.offline ? 'cloud_off' : 'error')}<h2>${e.offline ? 'Sin conexión' : 'No se pudo abrir'}</h2>
+      <p>${esc(e.offline ? 'Esto necesita internet y aún no está en este móvil. Puedes seguir con los trabajos que ya has abierto.' : e.message)}</p>
+      <button class="btn btn-primary" data-retry>Reintentar</button></div>`,
     mount: (v) => on(v, '[data-retry]', 'click', rerender),
   };
 }
@@ -232,52 +232,52 @@ function more() {
   const row = (href, ic, label, extra = '') => `<a class="list-row" href="${href}">${icon(ic)}<span>${label}</span>${extra}${icon('chevron_right', 'chev')}</a>`;
   const btnRow = (id, ic, label, cls = '') => `<button class="list-row ${cls}" id="${id}">${icon(ic)}<span>${label}</span></button>`;
   return {
-    title: 'More', tab: 'more',
+    title: 'Más', tab: 'more',
     body: `
       <section class="profile-card"><span class="avatar lg">${esc((me.name[0] || '?').toUpperCase())}</span>
-        <div><h2>${esc(me.name)}</h2><p>${esc(me.email)}</p><span class="role-tag">${admin ? 'Admin' : 'Employee'}</span></div></section>
-      ${admin ? `<h3 class="section-title">Admin</h3><div class="list-card">
-        ${row('#/home', 'space_dashboard', 'Admin dashboard')}${row('#/jobs', 'work_outline', 'Job management')}
-        ${row('#/new', 'add_home_work', 'New job')}${row('#/team', 'groups', 'Team')}</div>` : ''}
-      <h3 class="section-title">App</h3>
+        <div><h2>${esc(me.name)}</h2><p>${esc(me.email)}</p><span class="role-tag">${admin ? 'Administrador' : 'Empleado'}</span></div></section>
+      ${admin ? `<h3 class="section-title">Administración</h3><div class="list-card">
+        ${row('#/home', 'space_dashboard', 'Panel de administración')}${row('#/jobs', 'work_outline', 'Gestión de trabajos')}
+        ${row('#/new', 'add_home_work', 'Nuevo trabajo')}${row('#/team', 'groups', 'Equipo')}</div>` : ''}
+      <h3 class="section-title">Aplicación</h3>
       <div class="list-card">
-        ${row('#/notifications', 'notifications', 'Notifications', '<b class="badge" data-badge hidden></b>')}
-        <button class="list-row" id="push">${icon('notifications_active')}<span>Push notifications</span><span class="row-meta" id="push-state">…</span></button>
-        ${row('#/sync', 'sync', 'Sync &amp; offline', `<span class="row-meta">${store.pendingCount() ? `${store.pendingCount()} waiting` : ''}</span>`)}
-        ${btnRow('pw', 'lock', 'Change password')}
-        ${standalone() ? '' : btnRow('install', 'install_mobile', 'Add to Home Screen')}
-        ${btnRow('help', 'help_outline', 'Help')}
-        ${btnRow('about', 'info', 'About')}
+        ${row('#/notifications', 'notifications', 'Notificaciones', '<b class="badge" data-badge hidden></b>')}
+        <button class="list-row" id="push">${icon('notifications_active')}<span>Notificaciones push</span><span class="row-meta" id="push-state">…</span></button>
+        ${row('#/sync', 'sync', 'Sincronización y sin conexión', `<span class="row-meta">${store.pendingCount() ? `${store.pendingCount()} pendientes` : ''}</span>`)}
+        ${btnRow('pw', 'lock', 'Cambiar contraseña')}
+        ${standalone() ? '' : btnRow('install', 'install_mobile', 'Añadir a pantalla de inicio')}
+        ${btnRow('help', 'help_outline', 'Ayuda')}
+        ${btnRow('about', 'info', 'Acerca de')}
       </div>
-      <div class="list-card">${btnRow('out', 'logout', 'Sign out', 'danger')}</div>`,
+      <div class="list-card">${btnRow('out', 'logout', 'Cerrar sesión', 'danger')}</div>`,
     mount(v) {
       on(v, '#pw', 'click', changePassword);
-      const PUSH_TEXT = { on: 'On', off: 'Off', denied: 'Blocked', install: 'Install app first', unsupported: 'Not available' };
+      const PUSH_TEXT = { on: 'Activadas', off: 'Desactivadas', denied: 'Bloqueadas', install: 'Instala la app primero', unsupported: 'No disponibles' };
       const paintPush = async () => { const st = await pushState(); const el = $('#push-state', v); if (el) { el.textContent = PUSH_TEXT[st]; el.dataset.state = st; } };
       paintPush();
       on(v, '#push', 'click', async () => {
         const st = $('#push-state', v)?.dataset.state;
         if (st === 'install') return installHelp();
-        if (st === 'denied') return sheet(`<h2>Notifications are blocked</h2><p class="muted">Turn them on in your phone's Settings → Notifications → LCC Reports, then come back here.</p><div class="sheet-actions"><button class="btn btn-primary" data-close>OK</button></div>`);
-        if (st === 'unsupported') return toast('This browser can’t show notifications', 'bad');
+        if (st === 'denied') return sheet(`<h2>Notificaciones bloqueadas</h2><p class="muted">Actívalas en Ajustes del móvil → Notificaciones → LCC Informes y vuelve aquí.</p><div class="sheet-actions"><button class="btn btn-primary" data-close>Entendido</button></div>`);
+        if (st === 'unsupported') return toast('Este navegador no puede mostrar notificaciones', 'bad');
         try {
-          if (st === 'on') { await disablePush(); toast('Notifications off'); } else { await enablePush(); toast('Notifications on'); }
-        } catch (e) { toast(e.offline ? 'You need a connection to change this' : e.message, 'bad'); }
+          if (st === 'on') { await disablePush(); toast('Notificaciones desactivadas'); } else { await enablePush(); toast('Notificaciones activadas'); }
+        } catch (e) { toast(e.offline ? 'Necesitas conexión para cambiar esto' : e.message, 'bad'); }
         paintPush();
       });
       on(v, '#install', 'click', installHelp);
       on(v, '#out', 'click', logout);
-      on(v, '#help', 'click', () => sheet(`<h2>Help</h2>
-        <ol class="help-list"><li><b>Open your job</b> from Home or Jobs and tap <b>Start job</b>.</li>
-        <li>Take the <b>before photos</b> — one per photo spot, the app walks you through them. Need another spot? Add it on the photo screen.</li>
-        <li>Record <b>materials</b> and <b>report problems</b> as you work.</li>
-        <li>Take the <b>after photos</b> from the same spots.</li><li><b>Review</b> and <b>submit</b>. The admin gets your report.</li></ol>
-        <p class="muted">No signal? Keep going — everything is saved on your phone and sends itself when you're back online. Check <b>Sync &amp; offline</b> to see what's waiting.</p>
-        <div class="sheet-actions"><button class="btn btn-primary" data-close>Got it</button></div>`));
-      on(v, '#about', 'click', () => sheet(`<div class="center">${logo(80)}</div><h2 class="center">LCC Property Reports</h2>
-        <p class="muted center">Jobs, before &amp; after photos and property condition reports for LCC Bathrooms &amp; Services Ltd.</p>
-        <p class="muted center small">Version ${esc(document.querySelector('script[type=module]')?.src.split('v=')[1] || '')}</p>
-        <div class="sheet-actions"><button class="btn btn-secondary" data-close>Close</button></div>`));
+      on(v, '#help', 'click', () => sheet(`<h2>Ayuda</h2>
+        <ol class="help-list"><li><b>Abre tu trabajo</b> desde Inicio o Trabajos y pulsa <b>Empezar trabajo</b>.</li>
+        <li>Haz las <b>fotos antes</b> — una por zona; la app te guía. ¿Falta una zona? Añádela en la pantalla de fotos.</li>
+        <li>Anota los <b>materiales</b> y <b>comunica problemas</b> mientras trabajas.</li>
+        <li>Haz las <b>fotos después</b> desde las mismas zonas.</li><li><b>Revisa</b> y <b>envía</b>. El administrador recibe tu informe.</li></ol>
+        <p class="muted">¿Sin cobertura? Sigue trabajando — todo se guarda en tu móvil y se envía solo cuando vuelva la conexión. Mira <b>Sincronización y sin conexión</b> para ver lo pendiente.</p>
+        <div class="sheet-actions"><button class="btn btn-primary" data-close>Entendido</button></div>`));
+      on(v, '#about', 'click', () => sheet(`<div class="center">${logo(80)}</div><h2 class="center">LCC Informes de obra</h2>
+        <p class="muted center">Trabajos, fotos de antes y después e informes del estado de la vivienda para LCC Bathrooms &amp; Services Ltd.</p>
+        <p class="muted center small">Versión ${esc(document.querySelector('script[type=module]')?.src.split('v=')[1] || '')}</p>
+        <div class="sheet-actions"><button class="btn btn-secondary" data-close>Cerrar</button></div>`));
     },
   };
 }
@@ -285,23 +285,23 @@ function more() {
 export function installHelp() {
   if (installEvent) { installEvent.prompt(); installEvent = null; return; }
   const ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
-  sheet(`<h2>Add to Home Screen</h2>
-    <p class="muted">Install LCC Reports so it opens full-screen like an app and works offline.</p>
-    ${ios ? `<ol class="help-list"><li>Open this page in <b>Safari</b>.</li><li>Tap the <b>Share</b> button ${icon('ios_share')}.</li><li>Choose <b>Add to Home Screen</b>, then <b>Add</b>.</li></ol>`
-      : `<ol class="help-list"><li>Open the browser menu ${icon('more_vert')}.</li><li>Choose <b>Install app</b> or <b>Add to Home screen</b>.</li></ol>`}
-    <div class="sheet-actions"><button class="btn btn-primary" data-close>OK</button></div>`);
+  sheet(`<h2>Añadir a pantalla de inicio</h2>
+    <p class="muted">Instala LCC Informes para que se abra a pantalla completa como una app y funcione sin conexión.</p>
+    ${ios ? `<ol class="help-list"><li>Abre esta página en <b>Safari</b>.</li><li>Pulsa el botón <b>Compartir</b> ${icon('ios_share')}.</li><li>Elige <b>Añadir a pantalla de inicio</b> y luego <b>Añadir</b>.</li></ol>`
+      : `<ol class="help-list"><li>Abre el menú del navegador ${icon('more_vert')}.</li><li>Elige <b>Instalar aplicación</b> o <b>Añadir a pantalla de inicio</b>.</li></ol>`}
+    <div class="sheet-actions"><button class="btn btn-primary" data-close>Entendido</button></div>`);
 }
 
 function changePassword() {
-  sheet(`<form novalidate><h2>Change password</h2>
-    <label class="field"><span>Current password</span><input id="cur" type="password" autocomplete="current-password" required></label>
-    <label class="field"><span>New password</span><input id="nw" type="password" autocomplete="new-password" minlength="8" required><small>At least 8 characters</small></label>
+  sheet(`<form novalidate><h2>Cambiar contraseña</h2>
+    <label class="field"><span>Contraseña actual</span><input id="cur" type="password" autocomplete="current-password" required></label>
+    <label class="field"><span>Contraseña nueva</span><input id="nw" type="password" autocomplete="new-password" minlength="8" required><small>Al menos 8 caracteres</small></label>
     <p class="form-error" id="err" role="alert" hidden></p>
-    <div class="sheet-actions"><button class="btn btn-primary">Save password</button><button type="button" class="btn btn-secondary" data-close>Cancel</button></div></form>`, {
+    <div class="sheet-actions"><button class="btn btn-primary">Guardar contraseña</button><button type="button" class="btn btn-secondary" data-close>Cancelar</button></div></form>`, {
     wire: (d) => $('form', d).addEventListener('submit', async (e) => {
       e.preventDefault();
       const err = $('#err', d);
-      try { await store.api('/api/password', { method: 'POST', body: { current: $('#cur', d).value, next: $('#nw', d).value } }); d.close(); toast('Password changed'); }
+      try { await store.api('/api/password', { method: 'POST', body: { current: $('#cur', d).value, next: $('#nw', d).value } }); d.close(); toast('Contraseña cambiada'); }
       catch (ex) { err.hidden = false; err.textContent = ex.message; }
     }),
   });
@@ -313,47 +313,47 @@ function syncScreen() {
   const photos = list.filter((o) => o.kind === 'photo' || (o.kind === 'problem' && o.blobKey)).length;
   const failed = list.filter((o) => o.state === 'failed');
   return {
-    title: 'Sync status', back: '#/more', live: true, side: 'more',
+    title: 'Sincronización', back: '#/more', live: true, side: 'more',
     body: `
       <div class="stat-list card">
-        <div><span>Connection</span><b class="${s.reachable ? 'ok-text' : 'warn-text'}">${s.reachable ? `${icon('wifi')} Online` : `${icon('cloud_off')} ${navigator.onLine ? 'Server unreachable' : 'Offline'}`}</b></div>
-        <div><span>Last synced</span><b>${s.lastSynced ? `${fmtTime(s.lastSynced)} · ${ago(s.lastSynced)}` : 'Not yet'}</b></div>
-        <div><span>Photos waiting</span><b>${photos}</b></div>
-        <div><span>Other changes waiting</span><b>${list.length - photos}</b></div>
+        <div><span>Conexión</span><b class="${s.reachable ? 'ok-text' : 'warn-text'}">${s.reachable ? `${icon('wifi')} Conectado` : `${icon('cloud_off')} ${navigator.onLine ? 'Servidor no disponible' : 'Sin conexión'}`}</b></div>
+        <div><span>Última sincronización</span><b>${s.lastSynced ? `${fmtTime(s.lastSynced)} · ${ago(s.lastSynced)}` : 'Todavía no'}</b></div>
+        <div><span>Fotos pendientes</span><b>${photos}</b></div>
+        <div><span>Otros cambios pendientes</span><b>${list.length - photos}</b></div>
       </div>
       ${s.error ? `<p class="notice warn">${icon('warning')}${esc(s.error)}</p>` : ''}
-      ${failed.length ? `<h3 class="section-title">Couldn't be sent</h3>${failed.map((o) => `
+      ${failed.length ? `<h3 class="section-title">No se pudieron enviar</h3>${failed.map((o) => `
         <div class="card failed-op"><div><b>${store.OP_LABEL[o.kind]}</b> · ${esc(o.jobId)}<p class="muted">${esc(o.error)}</p></div>
-          <div class="btn-row"><button class="btn btn-secondary btn-sm" data-retry="${esc(o.id)}">Retry</button><button class="btn btn-text btn-sm danger" data-discard="${esc(o.id)}">Discard</button></div></div>`).join('')}` : ''}
-      ${list.length ? `<h3 class="section-title">Waiting to send</h3><div class="list-card">${list.filter((o) => o.state !== 'failed').map((o) => `
-        <div class="list-row static">${icon(o.kind === 'photo' ? 'photo_camera' : 'edit')}<span>${store.OP_LABEL[o.kind]} · ${esc(o.jobId)}</span><span class="row-meta">${store.sync.sendingId === o.id ? 'Sending…' : 'Queued'}</span></div>`).join('')}</div>`
-        : `<div class="state-card small">${icon('cloud_done')}<h2>Everything is synced</h2><p>Your work is safely on the server.</p></div>`}
-      <p class="muted small">Work you do with no signal is saved on this phone and sent automatically when the connection comes back.</p>`,
-    footer: `<button class="btn btn-primary btn-lg" id="now">${icon('sync')} Sync now</button>`,
+          <div class="btn-row"><button class="btn btn-secondary btn-sm" data-retry="${esc(o.id)}">Reintentar</button><button class="btn btn-text btn-sm danger" data-discard="${esc(o.id)}">Descartar</button></div></div>`).join('')}` : ''}
+      ${list.length ? `<h3 class="section-title">Pendiente de enviar</h3><div class="list-card">${list.filter((o) => o.state !== 'failed').map((o) => `
+        <div class="list-row static">${icon(o.kind === 'photo' ? 'photo_camera' : 'edit')}<span>${store.OP_LABEL[o.kind]} · ${esc(o.jobId)}</span><span class="row-meta">${store.sync.sendingId === o.id ? 'Enviando…' : 'En cola'}</span></div>`).join('')}</div>`
+        : `<div class="state-card small">${icon('cloud_done')}<h2>Todo sincronizado</h2><p>Tu trabajo está a salvo en el servidor.</p></div>`}
+      <p class="muted small">Lo que hagas sin cobertura se guarda en este móvil y se envía solo cuando vuelva la conexión.</p>`,
+    footer: `<button class="btn btn-primary btn-lg" id="now">${icon('sync')} Sincronizar ahora</button>`,
     mount(v, f) {
-      on(f, '#now', 'click', async (e, b) => { b.disabled = true; await store.syncNow(); toast(store.sync.reachable ? (store.pendingCount() ? 'Still sending…' : 'Synced') : 'Still offline', store.sync.reachable ? '' : 'bad'); });
+      on(f, '#now', 'click', async (e, b) => { b.disabled = true; await store.syncNow(); toast(store.sync.reachable ? (store.pendingCount() ? 'Aún enviando…' : 'Sincronizado') : 'Sigues sin conexión', store.sync.reachable ? '' : 'bad'); });
       on(v, '[data-retry]', 'click', (e, b) => store.retry(b.dataset.retry));
-      on(v, '[data-discard]', 'click', async (e, b) => { if (await confirmSheet({ title: 'Discard this change?', text: "It hasn't reached the server and will be lost.", ok: 'Discard', danger: true })) store.discard(b.dataset.discard); });
+      on(v, '[data-discard]', 'click', async (e, b) => { if (await confirmSheet({ title: '¿Descartar este cambio?', text: 'No ha llegado al servidor y se perderá.', ok: 'Descartar', danger: true })) store.discard(b.dataset.discard); });
     },
   };
 }
 
 // ── Notifications ───────────────────────────────────────
-const NOTE = { assigned: ['assignment_ind', 'New job', 'Assigned to you', 'Open job'], submitted: ['send', 'Report submitted', 'Waiting for review', 'Open report'],
-  reviewed: ['verified', 'Report reviewed', 'Your report has been reviewed', 'Open report'], problem: ['report_problem', 'Problem reported', '', 'Open job'] };
+const NOTE = { assigned: ['assignment_ind', 'Nuevo trabajo', 'Asignado a ti', 'Abrir trabajo'], submitted: ['send', 'Informe enviado', 'Pendiente de revisión', 'Abrir informe'],
+  reviewed: ['verified', 'Informe revisado', 'Tu informe ha sido revisado', 'Abrir informe'], problem: ['report_problem', 'Problema comunicado', '', 'Abrir trabajo'] };
 function notificationsScreen() {
   const seen = Number(safeGet(`lcc-seen:${me.id}`) || 0);
   const events = notifications(me);
   safeSet(`lcc-seen:${me.id}`, String(Date.now()));
   return {
-    title: 'Notifications', back: '#/more', side: 'notifications', live: true,
+    title: 'Notificaciones', back: '#/more', side: 'notifications', live: true,
     body: events.length ? events.map((e) => {
       const [ic, title, text, cta] = NOTE[e.type];
       return `<a class="card note ${e.at > seen ? 'unread' : ''}" href="${e.href}">
         <span class="note-ic t-${e.type}">${icon(ic)}</span>
         <div class="grow"><div class="note-top"><b>${title}</b><time>${ago(e.at)}</time></div>
           <div class="note-addr">${esc(e.address)}</div><p class="muted">${esc(e.text || text)}</p><span class="link">${cta} ${icon('arrow_forward')}</span></div></a>`;
-    }).join('') : `<div class="state-card">${icon('notifications_none')}<h2>No notifications</h2><p>New jobs and report updates will appear here.</p></div>`,
+    }).join('') : `<div class="state-card">${icon('notifications_none')}<h2>Sin notificaciones</h2><p>Aquí aparecerán los trabajos nuevos y las novedades de los informes.</p></div>`,
   };
 }
 
@@ -364,7 +364,7 @@ window.addEventListener('lcc:job-id', ({ detail: { tempId, realId } }) => {
   for (let k = 0; k < stack.length; k++) stack[k] = stack[k].replace(tempId, realId);
   sessionStorage.setItem('lcc-stack', JSON.stringify(stack));
   if (location.hash.includes(tempId)) { currentKey = location.hash.replace(tempId, realId); history.replaceState(null, '', currentKey); }
-  toast(`Job ${realId} created`);
+  toast(`Trabajo ${realId} creado`);
   rerender();
 });
 navigator.serviceWorker?.addEventListener('message', (e) => { if (e.data?.go) location.href = e.data.go; }); // tapped a notification

@@ -1,6 +1,6 @@
 // LCC design system: small HTML helpers + the few interactive pieces every screen shares
 // (bottom sheets, confirmations, photo viewer, toasts, skeletons, status chips, photo capture).
-import { displayStatus } from './jobs.mjs?v=__V__';
+import { displayStatus, tr } from './jobs.mjs?v=__V__';
 
 export const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 export const icon = (name, cls = '') => `<span class="i ${cls}" aria-hidden="true">${name}</span>`;
@@ -19,24 +19,28 @@ export function on(root, sel, ev, fn) { $$(sel, root).forEach((el) => { el[`on${
 for (const ev of ['gesturestart', 'gesturechange', 'gestureend']) document.addEventListener(ev, (e) => e.preventDefault(), { passive: false });
 document.addEventListener('touchmove', (e) => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
 
+// Spanish labels for stored values live in lib/jobs.mjs (shared with the server)
+export { tr };
+
 // ── dates ───────────────────────────────────────────────
 const TZ = { timeZone: 'Europe/London' };
-export const fmtDate = (d) => (d ? new Date(d).toLocaleDateString('en-GB', { ...TZ, day: '2-digit', month: 'short', year: 'numeric' }) : '—');
-export const fmtTime = (d) => new Date(d).toLocaleTimeString('en-GB', { ...TZ, hour: '2-digit', minute: '2-digit' });
+const LOCALE = 'es-ES';
+export const fmtDate = (d) => (d ? new Date(d).toLocaleDateString(LOCALE, { ...TZ, day: '2-digit', month: 'short', year: 'numeric' }) : '—');
+export const fmtTime = (d) => new Date(d).toLocaleTimeString(LOCALE, { ...TZ, hour: '2-digit', minute: '2-digit' });
 export function ago(d) {
   const s = (Date.now() - new Date(d)) / 1000;
-  if (s < 60) return 'just now';
-  if (s < 3600) return `${Math.floor(s / 60)} min ago`;
-  if (s < 86400) return `${Math.floor(s / 3600)} h ago`;
-  if (s < 7 * 86400) return `${Math.floor(s / 86400)} d ago`;
+  if (s < 60) return 'ahora mismo';
+  if (s < 3600) return `hace ${Math.floor(s / 60)} min`;
+  if (s < 86400) return `hace ${Math.floor(s / 3600)} h`;
+  if (s < 7 * 86400) { const n = Math.floor(s / 86400); return `hace ${n} día${n === 1 ? '' : 's'}`; }
   return fmtDate(d);
 }
-export const greeting = () => { const h = Number(new Date().toLocaleString('en-GB', { ...TZ, hour: 'numeric', hour12: false })); return h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening'; };
+export const greeting = () => { const h = Number(new Date().toLocaleString('en-GB', { ...TZ, hour: 'numeric', hour12: false })); return h < 12 ? 'Buenos días' : h < 20 ? 'Buenas tardes' : 'Buenas noches'; };
 
 // ── address lines ───────────────────────────────────────
 export const line1 = (j) => [j.houseNumber, j.street].filter(Boolean).join(' ') || j.id;
 /** what to show as the Job ID: a job made offline has no number until it syncs */
-export const jobNo = (j) => (j.pendingCreate ? 'Job ID on sync' : j.id);
+export const jobNo = (j) => (j.pendingCreate ? 'Nº al sincronizar' : j.id);
 export const line2 = (j) => [j.town, j.postcode].filter(Boolean).join(' ');
 
 // ── status chips: colour + icon + text, never colour alone ──
@@ -47,13 +51,13 @@ const STATUS_STYLE = {
 };
 export function chip(job) {
   const s = displayStatus(job), [tone, ic] = STATUS_STYLE[s] || STATUS_STYLE.Draft;
-  return `<span class="chip chip-${tone}">${icon(ic)}${esc(s)}</span>`;
+  return `<span class="chip chip-${tone}">${icon(ic)}${esc(tr(s))}</span>`;
 }
 
 // ── pieces ──────────────────────────────────────────────
 export const empty = (ic, title, text, action = '') => `<div class="empty">${icon(ic)}<h3>${esc(title)}</h3><p>${esc(text)}</p>${action}</div>`;
 export const skeleton = (n = 3, h = 120) => Array.from({ length: n }, () => `<div class="skel" style="height:${h}px"></div>`).join('');
-export const progressBar = (pct, label = '') => `<div class="progress" role="progressbar" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100" aria-label="${esc(label || 'Progress')}"><span style="transform:scaleX(${pct / 100})"></span></div>`;
+export const progressBar = (pct, label = '') => `<div class="progress" role="progressbar" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100" aria-label="${esc(label || 'Progreso')}"><span style="transform:scaleX(${pct / 100})"></span></div>`;
 
 /** <img> for a photo path: server URLs load directly, `local:<key>` ones (not yet uploaded) are filled by hydrate(). */
 export const photoImg = (path, alt = '') => path?.startsWith('local:')
@@ -90,12 +94,12 @@ export function sheet(html, { wire, className = '' } = {}) {
 }
 
 /** Confirmation sheet; resolves true when confirmed. */
-export function confirmSheet({ title, text = '', ok = 'Confirm', danger = false, detail = '' }) {
+export function confirmSheet({ title, text = '', ok = 'Confirmar', danger = false, detail = '' }) {
   return new Promise((resolve) => {
     let answer = false;
     const d = sheet(`<h2>${esc(title)}</h2>${detail}${text ? `<p class="muted">${esc(text)}</p>` : ''}
       <div class="sheet-actions"><button class="btn ${danger ? 'btn-danger' : 'btn-primary'}" data-ok>${esc(ok)}</button>
-      <button class="btn btn-secondary" data-close>Cancel</button></div>`);
+      <button class="btn btn-secondary" data-close>Cancelar</button></div>`);
     $('[data-ok]', d).addEventListener('click', () => { answer = true; d.close(); });
     d.addEventListener('close', () => resolve(answer));
   });
@@ -106,9 +110,9 @@ export function viewer(items, start = 0) {
   let i = start;
   const d = document.createElement('dialog');
   d.className = 'viewer';
-  d.innerHTML = `<div class="viewer-top"><span class="viewer-label"></span><button class="icon-btn" data-x aria-label="Close">${icon('close')}</button></div>
+  d.innerHTML = `<div class="viewer-top"><span class="viewer-label"></span><button class="icon-btn" data-x aria-label="Cerrar">${icon('close')}</button></div>
     <div class="viewer-stage"><img alt=""></div>
-    ${items.length > 1 ? `<button class="icon-btn viewer-prev" aria-label="Previous photo">${icon('chevron_left')}</button><button class="icon-btn viewer-next" aria-label="Next photo">${icon('chevron_right')}</button>` : ''}
+    ${items.length > 1 ? `<button class="icon-btn viewer-prev" aria-label="Foto anterior">${icon('chevron_left')}</button><button class="icon-btn viewer-next" aria-label="Foto siguiente">${icon('chevron_right')}</button>` : ''}
     <div class="viewer-count"></div>`;
   document.body.append(d);
   const img = $('img', d), stage = $('.viewer-stage', d);
@@ -185,7 +189,7 @@ export function pickPhoto({ camera = true } = {}) {
     input.addEventListener('change', async () => {
       const file = input.files[0];
       if (!file) return resolve(null);
-      try { resolve(await compress(file)); } catch { toast("Couldn't read that photo — try again", 'bad'); resolve(null); }
+      try { resolve(await compress(file)); } catch { toast('No se pudo leer la foto — inténtalo de nuevo', 'bad'); resolve(null); }
     }, { once: true });
     input.addEventListener('cancel', () => resolve(null), { once: true });
     input.click();

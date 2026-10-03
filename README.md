@@ -8,6 +8,15 @@ under a unique Job ID (`LCC-2026-00001`). Works offline.
 
 Originally a Flutter app (github.com/Perchito/lcc-property-reports); this is the web version.
 
+## Language
+
+The app is in **Spanish** (the people using it speak Spanish): every screen, message, push
+notification and server error, with Spanish dates. Values the app *stores* — statuses, the standard
+photo spots, material areas/units/statuses, problem types — stay in English in the database and
+are translated for display by `tr()` in `lib/jobs.mjs` (shared by server and browser). That keeps
+existing data working and the **PDF report in English** for UK clients. Names people type (custom
+photo spots, descriptions) show exactly as typed.
+
 ## Stack
 
 - **Server:** Node + Express 5 (`server.mjs`), Postgres, perchito-storage for photos
