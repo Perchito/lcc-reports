@@ -47,7 +47,7 @@ export function chip(job) {
 // ── pieces ──────────────────────────────────────────────
 export const empty = (ic, title, text, action = '') => `<div class="empty">${icon(ic)}<h3>${esc(title)}</h3><p>${esc(text)}</p>${action}</div>`;
 export const skeleton = (n = 3, h = 120) => Array.from({ length: n }, () => `<div class="skel" style="height:${h}px"></div>`).join('');
-export const progressBar = (pct, label = '') => `<div class="progress" role="progressbar" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100" aria-label="${esc(label || 'Progress')}"><span style="width:${pct}%"></span></div>`;
+export const progressBar = (pct, label = '') => `<div class="progress" role="progressbar" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100" aria-label="${esc(label || 'Progress')}"><span style="transform:scaleX(${pct / 100})"></span></div>`;
 
 /** <img> for a photo path: server URLs load directly, `local:<key>` ones (not yet uploaded) are filled by hydrate(). */
 export const photoImg = (path, alt = '') => path?.startsWith('local:')

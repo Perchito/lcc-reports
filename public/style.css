@@ -226,7 +226,7 @@ a.card:active, button.card:active { transform: scale(.985); }
 .date-btn input { position: absolute; inset: 0; opacity: 0; min-height: 0; padding: 0; }
 
 .progress { height: 8px; border-radius: 4px; background: var(--line-2); overflow: hidden; }
-.progress span { display: block; height: 100%; border-radius: 4px; background: var(--brand); transition: width .3s var(--ease); }
+.progress span { display: block; height: 100%; background: var(--brand); transform-origin: left; transition: transform .3s var(--ease); } /* scaleX, not width: no layout work while it animates */
 
 .notice { display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; margin: 0 0 14px; border-radius: var(--radius-sm); background: var(--blue-soft); color: #173f73; font-size: 15px; }
 .notice > .i { font-size: 20px; margin-top: 1px; }
