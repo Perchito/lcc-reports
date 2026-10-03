@@ -13,6 +13,12 @@ export const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 // partial redraw replaces the handler instead of stacking a second one on an unchanged button.
 export function on(root, sel, ev, fn) { $$(sel, root).forEach((el) => { el[`on${ev}`] = (e) => fn(e, el); }); }
 
+// ── no accidental page zoom on phones ──────────────────
+// iOS ignores user-scalable=no, so block its pinch gesture and two-finger moves here; double-tap zoom is
+// off via `touch-action: manipulation` in CSS. The photo viewer has its own pinch zoom on the image.
+for (const ev of ['gesturestart', 'gesturechange', 'gestureend']) document.addEventListener(ev, (e) => e.preventDefault(), { passive: false });
+document.addEventListener('touchmove', (e) => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
+
 // ── dates ───────────────────────────────────────────────
 const TZ = { timeZone: 'Europe/London' };
 export const fmtDate = (d) => (d ? new Date(d).toLocaleDateString('en-GB', { ...TZ, day: '2-digit', month: 'short', year: 'numeric' }) : '—');
@@ -97,7 +103,7 @@ export function confirmSheet({ title, text = '', ok = 'Confirm', danger = false,
 
 // ── full-screen photo viewer: swipe/arrow between photos, double-tap to zoom ──
 export function viewer(items, start = 0) {
-  let i = start, zoom = false;
+  let i = start;
   const d = document.createElement('dialog');
   d.className = 'viewer';
   d.innerHTML = `<div class="viewer-top"><span class="viewer-label"></span><button class="icon-btn" data-x aria-label="Close">${icon('close')}</button></div>
@@ -105,10 +111,19 @@ export function viewer(items, start = 0) {
     ${items.length > 1 ? `<button class="icon-btn viewer-prev" aria-label="Previous photo">${icon('chevron_left')}</button><button class="icon-btn viewer-next" aria-label="Next photo">${icon('chevron_right')}</button>` : ''}
     <div class="viewer-count"></div>`;
   document.body.append(d);
-  const img = $('img', d);
+  const img = $('img', d), stage = $('.viewer-stage', d);
+  // zoom lives on the photo only (the page itself never zooms): pinch, double-tap, drag to pan
+  let s = 1, tx = 0, ty = 0;
+  const apply = (animate) => { img.style.transition = animate ? '' : 'none'; img.style.transform = `translate(${tx}px, ${ty}px) scale(${s})`; };
+  const reset = () => { s = 1; tx = ty = 0; apply(true); };
+  const zoomTo = (ns, cx, cy) => { // keep the point under the finger where it is
+    const r = stage.getBoundingClientRect(), ox = cx - r.left - r.width / 2, oy = cy - r.top - r.height / 2;
+    tx = ox - ((ox - tx) * ns) / s; ty = oy - ((oy - ty) * ns) / s; s = ns;
+    if (s <= 1.01) { s = 1; tx = ty = 0; }
+  };
   const show = async () => {
     const it = items[i];
-    zoom = false; img.style.transform = '';
+    reset();
     img.src = it.src.startsWith('local:') ? (await localUrl(it.src.slice(6))) || '' : it.src;
     $('.viewer-label', d).textContent = it.label || '';
     $('.viewer-count', d).textContent = items.length > 1 ? `${i + 1} / ${items.length}` : '';
@@ -118,15 +133,34 @@ export function viewer(items, start = 0) {
   $('.viewer-prev', d)?.addEventListener('click', () => step(-1));
   $('.viewer-next', d)?.addEventListener('click', () => step(1));
   d.addEventListener('keydown', (e) => { if (e.key === 'ArrowLeft') step(-1); if (e.key === 'ArrowRight') step(1); });
-  let x0 = null;
-  img.addEventListener('touchstart', (e) => { if (e.touches.length === 1) x0 = e.touches[0].clientX; }, { passive: true });
-  img.addEventListener('touchend', (e) => { if (x0 != null && !zoom) { const dx = e.changedTouches[0].clientX - x0; if (Math.abs(dx) > 50) step(dx < 0 ? 1 : -1); } x0 = null; });
-  img.addEventListener('dblclick', (e) => {
-    zoom = !zoom;
-    const r = img.getBoundingClientRect();
-    img.style.transformOrigin = `${e.clientX - r.left}px ${e.clientY - r.top}px`;
-    img.style.transform = zoom ? 'scale(2.2)' : '';
+
+  let g = null, lastTap = 0;
+  const dist = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+  const mid = (t) => [(t[0].clientX + t[1].clientX) / 2, (t[0].clientY + t[1].clientY) / 2];
+  stage.addEventListener('touchstart', (e) => {
+    const t = e.touches;
+    g = t.length === 2 ? { pinch: true, d0: dist(t), s0: s, moved: true } : { x: t[0].clientX, y: t[0].clientY, tx0: tx, ty0: ty, moved: false };
+  }, { passive: true });
+  stage.addEventListener('touchmove', (e) => {
+    if (!g) return;
+    e.preventDefault();
+    const t = e.touches;
+    if (g.pinch && t.length === 2) { const [cx, cy] = mid(t); zoomTo(Math.min(4, Math.max(1, (g.s0 * dist(t)) / g.d0)), cx, cy); apply(false); return; }
+    if (!g.pinch && t.length === 1) {
+      const dx = t[0].clientX - g.x, dy = t[0].clientY - g.y;
+      if (Math.abs(dx) + Math.abs(dy) > 8) g.moved = true;
+      if (s > 1) { tx = g.tx0 + dx; ty = g.ty0 + dy; apply(false); }
+    }
+  }, { passive: false });
+  stage.addEventListener('touchend', (e) => {
+    if (!g || e.touches.length) return;
+    const t = e.changedTouches[0];
+    if (!g.pinch && !g.moved) { // a tap: two quick taps toggle zoom
+      if (Date.now() - lastTap < 300) { if (s > 1) reset(); else { zoomTo(2.5, t.clientX, t.clientY); apply(true); } lastTap = 0; } else lastTap = Date.now();
+    } else if (!g.pinch && s === 1) { const dx = t.clientX - g.x; if (Math.abs(dx) > 50) step(dx < 0 ? 1 : -1); } // swipe between photos
+    g = null;
   });
+  img.addEventListener('dblclick', (e) => { if (s > 1) reset(); else { zoomTo(2.5, e.clientX, e.clientY); apply(true); } }); // mouse
   d.addEventListener('close', () => d.remove());
   d.showModal();
   show();

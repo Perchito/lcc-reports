@@ -23,7 +23,7 @@
 /* ── base ── */
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
-html { -webkit-text-size-adjust: 100%; background: var(--bg); }
+html { -webkit-text-size-adjust: 100%; background: var(--bg); touch-action: manipulation; } /* no double-tap zoom */
 body {
   margin: 0; min-height: 100dvh; background: var(--bg); color: var(--ink);
   font: 16px/1.45 system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -283,7 +283,8 @@ dialog.sheet > p, dialog.sheet form > p.muted { margin-bottom: 14px; }
 dialog.viewer { position: fixed; inset: 0; width: 100vw; height: 100dvh; max-width: none; max-height: none; margin: 0; padding: 0; border: 0; background: #000; color: #fff; overflow: hidden; }
 dialog.viewer::backdrop { background: #000; }
 .viewer-stage { position: absolute; inset: 0; display: grid; place-items: center; overflow: hidden; }
-.viewer-stage img { max-width: 100%; max-height: 100%; object-fit: contain; transition: transform .2s var(--ease); touch-action: pan-x pan-y pinch-zoom; }
+.viewer-stage { touch-action: none; } /* gestures handled in ui.js viewer() */
+.viewer-stage img { max-width: 100%; max-height: 100%; object-fit: contain; transition: transform .2s var(--ease); will-change: transform; }
 .viewer-top { position: absolute; z-index: 2; top: 0; left: 0; right: 0; display: flex; align-items: center; justify-content: space-between; gap: 10px;
   padding: calc(var(--sat) + 6px) calc(8px + var(--sar)) 10px calc(16px + var(--sal)); background: linear-gradient(#000a, #0000); }
 .viewer-label { font-weight: 600; font-size: 15px; }
