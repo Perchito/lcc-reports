@@ -211,7 +211,8 @@ a.card:active, button.card:active { transform: scale(.985); }
 .chip-teal { background: var(--teal-soft); color: var(--teal); }
 .t-red { background: var(--red-soft); color: var(--red); }
 
-.chips { display: flex; gap: 8px; overflow-x: auto; margin: 0 calc(-16px - var(--sar)) 14px calc(-16px - var(--sal)); padding: 2px calc(16px + var(--sar)) 4px calc(16px + var(--sal)); scrollbar-width: none; scroll-snap-type: x proximity; }
+.chips { display: flex; gap: 8px; overflow-x: auto; margin: 0 calc(-16px - var(--sar)) 14px calc(-16px - var(--sal)); padding: 2px calc(16px + var(--sar)) 4px calc(16px + var(--sal)); scrollbar-width: none; scroll-snap-type: x proximity;
+  scroll-padding-inline: calc(16px + var(--sal)) calc(16px + var(--sar)); } /* snapping keeps the page margin */
 .chips::-webkit-scrollbar { display: none; }
 .chips.wrap { flex-wrap: wrap; overflow: visible; margin: 0; padding: 0; }
 .chip-btn { flex: none; min-height: 40px; padding: 8px 16px; border-radius: 999px; border: 1.5px solid var(--line); background: var(--card); font-size: 15px; font-weight: 600; color: var(--ink-2); white-space: nowrap; scroll-snap-align: start; display: inline-flex; align-items: center; gap: 6px; }
