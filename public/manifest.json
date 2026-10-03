@@ -1,0 +1,17 @@
+{
+  "id": "/",
+  "name": "LCC Property Reports",
+  "short_name": "LCC Reports",
+  "description": "LCC Bathrooms & Services Ltd — jobs, materials, before & after photos and property reports.",
+  "start_url": "/#/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#ffffff",
+  "theme_color": "#0097a7",
+  "icons": [
+    { "src": "/img/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/img/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/img/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

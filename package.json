@@ -1,0 +1,15 @@
+{
+  "name": "lcc-reports",
+  "version": "2.0.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node lib/auth.mjs && node lib/jobs.mjs"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "pdfkit": "^0.20.2",
+    "pg": "^8.12.0"
+  }
+}
