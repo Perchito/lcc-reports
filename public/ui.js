@@ -29,6 +29,8 @@ export const greeting = () => { const h = Number(new Date().toLocaleString('en-G
 
 // ── address lines ───────────────────────────────────────
 export const line1 = (j) => [j.houseNumber, j.street].filter(Boolean).join(' ') || j.id;
+/** what to show as the Job ID: a job made offline has no number until it syncs */
+export const jobNo = (j) => (j.pendingCreate ? 'Job ID on sync' : j.id);
 export const line2 = (j) => [j.town, j.postcode].filter(Boolean).join(' ');
 
 // ── status chips: colour + icon + text, never colour alone ──

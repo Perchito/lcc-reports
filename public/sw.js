@@ -7,7 +7,7 @@
 //     per signed-in user, and is wiped on sign-out (see store.js).
 const V = '__V__';
 const SHELL = `lcc-shell-${V}`, PHOTOS = 'lcc-photos';
-const MODULES = ['app.js', 'ui.js', 'store.js', 'home.js', 'lists.js', 'job.js', 'admin.js', 'jobs.mjs'];
+const MODULES = ['app.js', 'ui.js', 'store.js', 'push.js', 'home.js', 'lists.js', 'job.js', 'admin.js', 'jobs.mjs'];
 const PRECACHE = ['/', `/style.css?v=${V}`, ...MODULES.map((m) => `/${m}?v=${V}`), '/fonts/material-icons-outlined.woff2', '/img/icon-192.png', '/manifest.json'];
 
 self.addEventListener('install', (e) => e.waitUntil(caches.open(SHELL).then((c) => c.addAll(PRECACHE)).then(() => self.skipWaiting())));
@@ -38,4 +38,23 @@ self.addEventListener('fetch', (e) => {
   } else if (url.searchParams.has('v') || url.pathname.startsWith('/fonts/') || url.pathname.startsWith('/img/')) {
     e.respondWith(cacheFirst(SHELL, req));
   }
+});
+
+// ── push notifications ──
+self.addEventListener('push', (e) => {
+  let d = {};
+  try { d = e.data?.json() || {}; } catch { d = { title: 'LCC Reports', body: e.data?.text() }; }
+  e.waitUntil(self.registration.showNotification(d.title || 'LCC Reports', {
+    body: d.body || '', tag: d.tag, renotify: !!d.tag, icon: '/img/icon-192.png', badge: '/img/icon-192.png', data: { url: d.url || '/#/home' },
+  }));
+});
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close();
+  const url = new URL(e.notification.data?.url || '/#/home', self.location.origin).href;
+  e.waitUntil((async () => {
+    for (const c of await self.clients.matchAll({ type: 'window', includeUncontrolled: true })) {
+      if (new URL(c.url).origin === self.location.origin) { await c.focus(); return c.navigate(url).catch(() => c.postMessage({ go: url })); }
+    }
+    return self.clients.openWindow(url);
+  })());
 });

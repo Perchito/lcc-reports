@@ -8,7 +8,7 @@
 //
 //   local change → IndexedDB outbox (queued) → server reachable → sending → server
 //   confirms → removed (job copy updated)   |   refused → kept as failed (retry/discard)
-import { PHOTO_ROOMS, MATERIAL_AREAS } from './jobs.mjs?v=__V__';
+import { PHOTO_ROOMS, MATERIAL_AREAS, newJob } from './jobs.mjs?v=__V__';
 
 // ── IndexedDB: kv (job cache per user), outbox (changes), blobs (photos not yet uploaded) ──
 const db = new Promise((resolve, reject) => {
@@ -38,6 +38,8 @@ let me = null;
 export const user = () => me;
 const server = new Map(); // id -> job as the server last returned it
 let ops = [];             // this user's outbox, oldest first
+const alias = new Map();  // temporary id of a job created offline -> the real Job ID the server gave it
+const canon = (id) => alias.get(id) || id;
 export const sync = {
   reachable: navigator.onLine, // last real contact with the server (navigator.onLine alone can lie)
   flushing: false, sendingId: null, error: '', loaded: false,
@@ -59,6 +61,8 @@ export async function start(user) {
   for (const j of (await kvGet(`jobs:${me.id}`)) || []) server.set(j.id, j);
   sync.lastSynced = (await kvGet(`synced:${me.id}`)) || null;
   ops = ((await tx('outbox', 'readonly', (s) => s.getAll())) || []).filter((o) => o.uid === me.id).sort((a, b) => a.seq - b.seq);
+  alias.clear();
+  for (const [k, v] of Object.entries((await kvGet(`alias:${me.id}`)) || {})) alias.set(k, v);
   sync.loaded = server.size > 0 || !!sync.lastSynced;
   notify();
   refresh();
@@ -70,7 +74,12 @@ export async function reset() {
   const uid = me.id;
   for (const o of ops) if (o.blobKey) await tx('blobs', 'readwrite', (s) => s.delete(o.blobKey));
   await tx('outbox', 'readwrite', (s) => ops.forEach((o) => s.delete(o.id)));
-  await tx('kv', 'readwrite', (s) => { s.delete(`jobs:${uid}`); s.delete(`synced:${uid}`); });
+  await tx('kv', 'readwrite', (s) => {
+    for (const k of ['jobs', 'synced', 'alias', 'users']) s.delete(`${k}:${uid}`);
+    s.delete(IDBKeyRange.bound(`draft:${uid}:`, `draft:${uid}:\uffff`));
+  });
+  await tx('blobs', 'readwrite', (s) => s.delete(IDBKeyRange.bound(`draft:${uid}:`, `draft:${uid}:\uffff`)));
+  alias.clear();
   blobUrls.forEach((u) => URL.revokeObjectURL(u)); blobUrls.clear();
   me = null; ops = []; server.clear(); sync.loaded = false;
 }
@@ -120,6 +129,8 @@ function markSynced() { sync.lastSynced = Date.now(); if (me) kvSet(`synced:${me
 
 /** One job, from the server when possible (fresh), else the device copy. */
 export async function loadJob(id) {
+  id = canon(id);
+  if (isTemp(id)) return job(id); // created offline, not on the server yet
   try {
     const j = await api(`/api/jobs/${encodeURIComponent(id)}`);
     server.set(j.id, j); saveCache(); notify();
@@ -128,12 +139,18 @@ export async function loadJob(id) {
 }
 
 // ── reading: server copy + pending changes ──────────────
-export const jobs = () => [...server.keys()].map(job).filter(Boolean)
+export const isTemp = (id) => String(id).startsWith('NEW-');
+export const jobs = () => [...new Set([...server.keys(), ...ops.filter((o) => o.kind === 'create').map((o) => o.jobId)])].map(job).filter(Boolean)
   .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
 export function job(id) {
-  const base = server.get(id);
-  if (!base) return null;
-  return ops.filter((o) => o.jobId === id).reduce(applyOp, structuredClone(base));
+  id = canon(id);
+  let base = server.get(id);
+  if (!base) { // a job created on this device that hasn't reached the server yet
+    const c = ops.find((o) => o.kind === 'create' && o.jobId === id);
+    if (!c) return null;
+    base = { ...newJob(id, c.body, me?.email), createdAt: new Date(c.seq).toISOString(), pendingCreate: true };
+  }
+  return ops.filter((o) => o.jobId === id && o.kind !== 'create').reduce(applyOp, structuredClone(base));
 }
 
 /** Applies one queued change to a job copy — mirrors what the server will do with it. */
@@ -158,6 +175,7 @@ export function applyOp(j, o) {
 // ── writing: every change goes through the outbox ───────
 let seq = Date.now();
 async function enqueue(op, blob) {
+  if (op.kind !== 'create' && alias.has(op.jobId)) { op.id = op.id.replace(op.jobId, alias.get(op.jobId)); op.jobId = alias.get(op.jobId); }
   op = { ...op, uid: me.id, seq: Math.max(++seq, Date.now()), state: 'queued', error: '' };
   const prev = ops.find((o) => o.id === op.id); // same slot again (retake / delete): replaces the waiting one
   if (prev?.blobKey) { await tx('blobs', 'readwrite', (s) => s.delete(prev.blobKey)); dropUrl(prev.blobKey); }
@@ -169,6 +187,12 @@ async function enqueue(op, blob) {
 }
 const rid = () => crypto.randomUUID().replace(/-/g, '').slice(0, 16);
 
+/** New job (admin). Works offline: it gets a temporary NEW-… id until the server issues the Job ID. */
+export function createJob(body) {
+  const tempId = `NEW-${rid().slice(0, 8).toUpperCase()}`;
+  enqueue({ id: `create:${tempId}`, jobId: tempId, kind: 'create', body: { ...body, clientId: rid() } });
+  return tempId;
+}
 export const patch = (jobId, body) => enqueue({ id: `patch:${jobId}:${rid()}`, jobId, kind: 'patch', body });
 export const photo = (jobId, room, type, blob) => enqueue({ id: `slot:${jobId}:${room}:${type}`, jobId, kind: 'photo', body: { room, type } }, blob);
 export const deletePhoto = (jobId, room, type) => enqueue({ id: `slot:${jobId}:${room}:${type}`, jobId, kind: 'photoDel', body: { room, type } });
@@ -187,6 +211,7 @@ async function send(o) {
   const b = o.body, base = `/api/jobs/${enc(o.jobId)}`;
   const blob = o.blobKey ? await tx('blobs', 'readonly', (s) => s.get(o.blobKey)) : null;
   switch (o.kind) {
+    case 'create': return api('/api/jobs', { method: 'POST', body: b });
     case 'patch': return api(base, { method: 'PATCH', body: b });
     case 'photo':
       if (!blob) throw Object.assign(new Error('The photo is missing on this device — take it again'), { status: 410 });
@@ -202,6 +227,17 @@ async function send(o) {
     }
   }
 }
+// the server gave a job created offline its real Job ID: move its waiting changes over to it
+async function adopt(tempId, realId) {
+  alias.set(tempId, realId);
+  await kvSet(`alias:${me.id}`, Object.fromEntries(alias));
+  for (const o of ops.filter((x) => x.jobId === tempId)) {
+    const moved = { ...o, jobId: realId, id: o.id.replace(tempId, realId) };
+    await tx('outbox', 'readwrite', (s) => { s.delete(o.id); s.put(moved); });
+    ops[ops.indexOf(o)] = moved;
+  }
+  window.dispatchEvent(new CustomEvent('lcc:job-id', { detail: { tempId, realId } }));
+}
 async function removeOp(o) {
   await tx('outbox', 'readwrite', (s) => s.delete(o.id));
   if (o.blobKey) { await tx('blobs', 'readwrite', (s) => s.delete(o.blobKey)); dropUrl(o.blobKey); }
@@ -213,13 +249,17 @@ export async function flush() {
   if (sync.flushing || !me) return;
   sync.flushing = true; clearTimeout(retryTimer); notify();
   try {
-    for (const o of [...ops]) {
-      if (o.state === 'failed' || !ops.includes(o)) continue; // failed ones wait for Retry/Discard
+    for (;;) {
+      // next waiting change; failed ones wait for Retry/Discard, and changes to a job created
+      // offline wait until that job exists on the server
+      const o = ops.find((x) => x.state !== 'failed' && (x.kind === 'create' || !ops.some((c) => c.kind === 'create' && c.jobId === x.jobId)));
+      if (!o) break;
       sync.sendingId = o.id; notify();
       try {
         const j = await send(o);
         if (j?.id) { server.set(j.id, j); await saveCache(); }
         await removeOp(o);
+        if (o.kind === 'create') await adopt(o.jobId, j.id);
       } catch (e) {
         if (e.offline) { retryTimer = setTimeout(flush, retryDelay); retryDelay = Math.min(retryDelay * 2, 60_000); return; }
         if (!e.status || e.status >= 500 || e.status === 429 || e.status === 401) { // server trouble / signed out: keep it, try later
@@ -246,17 +286,27 @@ export async function discard(id) { const o = ops.find((x) => x.id === id); if (
 export const syncNow = async () => { ops.forEach((o) => { if (o.state === 'failed') o.state = 'queued'; }); await health(); await refresh(); };
 
 // ── what screens ask about the queue ────────────────────
-export const pending = (jobId) => ops.filter((o) => !jobId || o.jobId === jobId);
+export const pending = (jobId) => ops.filter((o) => !jobId || o.jobId === canon(jobId));
 export const pendingCount = () => ops.length;
 /** 'uploading' | 'queued' | 'failed' | null for one photo slot */
 export function slotState(jobId, room, type) {
+  jobId = canon(jobId);
   const o = ops.find((x) => x.id === `slot:${jobId}:${room}:${type}`);
   if (!o) return null;
   if (o.state === 'failed') return 'failed';
   return sync.sendingId === o.id ? 'uploading' : 'queued';
 }
-export const slotOp = (jobId, room, type) => ops.find((x) => x.id === `slot:${jobId}:${room}:${type}`);
-export const OP_LABEL = { patch: 'Job update', photo: 'Photo', photoDel: 'Photo removal', matAdd: 'New material', matEdit: 'Material change', matDel: 'Material removal', problem: 'Problem report' };
+export const slotOp = (jobId, room, type) => ops.find((x) => x.id === `slot:${canon(jobId)}:${room}:${type}`);
+export const OP_LABEL = { create: 'New job', patch: 'Job update', photo: 'Photo', photoDel: 'Photo removal', matAdd: 'New material', matEdit: 'Material change', matDel: 'Material removal', problem: 'Problem report' };
+
+// ── drafts (forms in progress) and the employee list, per user, wiped on sign-out ──
+export const getDraft = (key) => kvGet(`draft:${me.id}:${key}`);
+export const saveDraft = (key, value) => kvSet(`draft:${me.id}:${key}`, value);
+export const clearDraft = (key) => tx('kv', 'readwrite', (s) => s.delete(`draft:${me.id}:${key}`));
+export const getDraftBlob = (key) => tx('blobs', 'readonly', (s) => s.get(`draft:${me.id}:${key}`));
+export const saveDraftBlob = (key, blob) => tx('blobs', 'readwrite', (s) => (blob ? s.put(blob, `draft:${me.id}:${key}`) : s.delete(`draft:${me.id}:${key}`)));
+export const cachedUsers = () => kvGet(`users:${me.id}`);
+export const cacheUsers = (list) => kvSet(`users:${me.id}`, list);
 
 // photos still on the device, as object URLs
 const blobUrls = new Map();

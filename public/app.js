@@ -9,6 +9,7 @@ import { ROUTES as JOB_ROUTES } from './job.js?v=__V__';
 import { ROUTES as LIST_ROUTES } from './lists.js?v=__V__';
 import { ROUTES as ADMIN_ROUTES } from './admin.js?v=__V__';
 import { home } from './home.js?v=__V__';
+import { pushState, enablePush, disablePush, refreshPush } from './push.js?v=__V__';
 
 setLocalResolver(store.localUrl);
 const $app = document.getElementById('app');
@@ -24,6 +25,7 @@ async function boot() {
   await store.start(me);
   shell();
   route();
+  refreshPush();
 }
 window.addEventListener('lcc:logged-out', () => { if (me) { me = null; safeSet('lcc-me', null); loginScreen('Your session ended — please sign in again.'); } });
 
@@ -33,6 +35,7 @@ async function logout() {
     ? { title: 'Sign out?', text: `${waiting} change${waiting === 1 ? ' is' : 's are'} still waiting to sync and will be lost on this device. Sync first if you can.`, ok: 'Sign out anyway', danger: true }
     : { title: 'Sign out?', ok: 'Sign out' });
   if (!ok) return;
+  await disablePush(); // this phone stops getting this person's notifications
   await store.api('/api/logout', { method: 'POST' }).catch(() => {});
   await store.reset();
   caches.delete('lcc-photos').catch(() => {});
@@ -239,6 +242,7 @@ function more() {
       <h3 class="section-title">App</h3>
       <div class="list-card">
         ${row('#/notifications', 'notifications', 'Notifications', '<b class="badge" data-badge hidden></b>')}
+        <button class="list-row" id="push">${icon('notifications_active')}<span>Push notifications</span><span class="row-meta" id="push-state">…</span></button>
         ${row('#/sync', 'sync', 'Sync &amp; offline', `<span class="row-meta">${store.pendingCount() ? `${store.pendingCount()} waiting` : ''}</span>`)}
         ${btnRow('pw', 'lock', 'Change password')}
         ${standalone() ? '' : btnRow('install', 'install_mobile', 'Add to Home Screen')}
@@ -248,6 +252,19 @@ function more() {
       <div class="list-card">${btnRow('out', 'logout', 'Sign out', 'danger')}</div>`,
     mount(v) {
       on(v, '#pw', 'click', changePassword);
+      const PUSH_TEXT = { on: 'On', off: 'Off', denied: 'Blocked', install: 'Install app first', unsupported: 'Not available' };
+      const paintPush = async () => { const st = await pushState(); const el = $('#push-state', v); if (el) { el.textContent = PUSH_TEXT[st]; el.dataset.state = st; } };
+      paintPush();
+      on(v, '#push', 'click', async () => {
+        const st = $('#push-state', v)?.dataset.state;
+        if (st === 'install') return installHelp();
+        if (st === 'denied') return sheet(`<h2>Notifications are blocked</h2><p class="muted">Turn them on in your phone's Settings → Notifications → LCC Reports, then come back here.</p><div class="sheet-actions"><button class="btn btn-primary" data-close>OK</button></div>`);
+        if (st === 'unsupported') return toast('This browser can’t show notifications', 'bad');
+        try {
+          if (st === 'on') { await disablePush(); toast('Notifications off'); } else { await enablePush(); toast('Notifications on'); }
+        } catch (e) { toast(e.offline ? 'You need a connection to change this' : e.message, 'bad'); }
+        paintPush();
+      });
       on(v, '#install', 'click', installHelp);
       on(v, '#out', 'click', logout);
       on(v, '#help', 'click', () => sheet(`<h2>Help</h2>
@@ -342,5 +359,14 @@ function notificationsScreen() {
 
 // ── start ───────────────────────────────────────────────
 window.addEventListener('hashchange', route);
+// a job created offline got its real Job ID: move the address bar (and back stack) over to it
+window.addEventListener('lcc:job-id', ({ detail: { tempId, realId } }) => {
+  for (let k = 0; k < stack.length; k++) stack[k] = stack[k].replace(tempId, realId);
+  sessionStorage.setItem('lcc-stack', JSON.stringify(stack));
+  if (location.hash.includes(tempId)) { currentKey = location.hash.replace(tempId, realId); history.replaceState(null, '', currentKey); }
+  toast(`Job ${realId} created`);
+  rerender();
+});
+navigator.serviceWorker?.addEventListener('message', (e) => { if (e.data?.go) location.href = e.data.go; }); // tapped a notification
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 boot();

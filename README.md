@@ -54,7 +54,14 @@ screens; focused screens (photo capture, materials, review, …) hide it and sho
   Discard — nothing is dropped silently. Signing out with unsent changes warns first.
 - The sync pill (header, or sidebar on desktop) shows Synced / Syncing / Offline / N waiting /
   N not sent and opens the Sync status screen (connection, last sync, waiting photos/changes, Sync now).
-- New job creation, Team and PDF generation need a connection; the app says so clearly.
+- **New jobs work offline too.** A job created with no signal gets a temporary `NEW-…` id
+  (shown as "Job ID on sync"); everything done to it is queued behind it. When it reaches the
+  server it gets its real `LCC-YYYY-NNNNN` number, the queued changes move over, and the screen
+  follows. A phone-made `clientId` means a resend returns the same job instead of a duplicate.
+  The employee list is kept on the device so jobs can be assigned offline.
+- **Drafts:** the new-job form, edit-job form and problem report (text *and* photo) are saved on
+  the device as you type, per user, and restored if the app is closed. Wiped on sign-out.
+- Team and PDF generation need a connection; the app says so clearly.
 
 **Service worker:** app shell (versioned `?v=` files, font, icons) cache-first, refreshed on every
 deploy; page navigation network-first with the cached shell offline; photos (`/api/jobs/:id/files/…`)
@@ -73,12 +80,24 @@ All JSON, cookie session (`lcc_session`). Admins see every job; employees only j
   edit materials; they can delete only the ones they added
 - `PUT /api/jobs/:id/files/problem?pid=…` (problem photo), `POST /api/jobs/:id/problems`
 - `GET /api/jobs/:id/files/:file` (photo), `GET /api/jobs/:id/pdf` (PDFKit report)
+- `GET /api/push/key`, `POST /api/push/subscribe`, `POST /api/push/unsubscribe`
+
+## Push notifications
+
+Web push (`lib/push.mjs`, `web-push` library, VAPID keys in `.env`). Sent when a job is assigned
+(to the employee), a report is submitted (to admins), a problem is reported (to admins) and a
+report is reviewed (to the employee) — never to the person who did it. Tapping one opens the job
+or report. Turn on from Home (one-time card) or More → Push notifications. **On iPhone this only
+works in the app added to the Home Screen (iOS 16.4+)**; Android and desktop browsers work in the
+browser too. Subscriptions of uninstalled apps are removed automatically. Signing out stops that
+phone's notifications.
 
 ## Database
 
 `db/schema.sql` is idempotent and runs on every deploy. Jobs are one row each (`jobs.data` JSONB,
-same shape as the Flutter app). **Migration (2026-10 redesign):** every material line gets an `id`
-(only lines without one are touched; existing data is kept). No new environment variables.
+same shape as the Flutter app). **Migrations (2026-10):** every material line gets an `id` (only lines
+without one are touched; existing data is kept); new table `push_subscriptions`. New environment
+variables: `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` (push; `setup-perchito.sh` generates them).
 
 ## Run locally
 
@@ -117,10 +136,9 @@ Updates: `./deploy.sh` (rsync without `.env`/`node_modules`, `npm ci`, schema, r
 
 ## Known limits
 
-- New jobs need a connection (the server issues the Job ID).
-- A problem's photo that is picked but not yet sent lives only in memory until *Send to admin*
-  (the typed text is kept as a draft).
-- Notifications are worked out from job data (new job, report submitted/reviewed, problems); there
-  are no push notifications.
+- PDFs are made by the server (PDFKit), so they need a connection; offline the full report is
+  readable on screen and the PDF is ready as soon as the job has synced.
+- The Team page (creating logins) needs a connection.
+- iPhone push notifications need the Home Screen app on iOS 16.4 or later.
 - "Properties" are part of each job (address, key safe, person in charge) — there is no separate
   property list.

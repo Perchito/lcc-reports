@@ -22,6 +22,7 @@ fs.writeFileSync(f,JSON.stringify(d,null,2))' "$DBPASS" "$STORAGE_KEY"
 
 sed -e "s|^DATABASE_URL=.*|DATABASE_URL=postgresql://p_lcc_reports:$DBPASS@127.0.0.1:5432/p_lcc_reports|" \
     -e "s|^HOME_STORAGE_KEY=.*|HOME_STORAGE_KEY=$STORAGE_KEY|" .env.example > .env
+sudo -u perchito node -e 'const k=require("web-push").generateVAPIDKeys(); console.log(`VAPID_PUBLIC_KEY=${k.publicKey}\nVAPID_PRIVATE_KEY=${k.privateKey}`)' > /tmp/vapid.$$ && sed -i -e "/^VAPID_P/d" .env && cat /tmp/vapid.$$ >> .env && rm /tmp/vapid.$$
 chown perchito:perchito .env && chmod 600 .env
 sudo -u perchito bash -c 'set -a; . ./.env; psql "$DATABASE_URL" -q -v ON_ERROR_STOP=1 -f db/schema.sql'
 

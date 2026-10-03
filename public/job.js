@@ -3,7 +3,7 @@
 // so every screen here works with no signal.
 import {
   esc, icon, on, $, $$, go, redraw, chip, empty, progressBar, photoImg, toast, sheet, confirmSheet, viewer, pickPhoto,
-  line1, line2, fmtDate, ago, logo,
+  line1, line2, jobNo, fmtDate, ago, logo,
 } from './ui.js?v=__V__';
 import * as store from './store.js?v=__V__';
 import {
@@ -81,8 +81,9 @@ async function details(id, q, me) {
     actions: admin ? `<button class="icon-btn" id="menu" aria-label="Job options">${icon('more_horiz')}</button>` : '',
     body: `
       <section class="job-hero">${chip(j)}<h2>${esc(line1(j))}</h2><p>${esc(line2(j))}</p>
-        <div class="job-meta"><span class="mono">${esc(j.id)}</span><span>${icon('event')}${fmtDate(j.createdAt)}</span>${j.assignedTo ? `<span>${icon('person')}${esc(j.assignedTo)}</span>` : ''}</div></section>
-      ${waiting ? `<p class="notice">${icon('cloud_upload')}${waiting} change${waiting === 1 ? '' : 's'} saved on this device ${store.sync.reachable ? '— syncing…' : '— will sync when you’re back online'}</p>` : ''}
+        <div class="job-meta"><span class="mono">${esc(jobNo(j))}</span><span>${icon('event')}${fmtDate(j.createdAt)}</span>${j.assignedTo ? `<span>${icon('person')}${esc(j.assignedTo)}</span>` : ''}</div></section>
+      ${j.pendingCreate ? `<p class="notice">${icon('schedule_send')}<span>New job saved on this device. It gets its Job ID and reaches ${j.assignedTo ? esc(j.assignedTo) : 'the team'} when you're back online.</span></p>` : ''}
+      ${waiting && !j.pendingCreate ? `<p class="notice">${icon('cloud_upload')}${waiting} change${waiting === 1 ? '' : 's'} saved on this device ${store.sync.reachable ? '— syncing…' : '— will sync when you’re back online'}</p>` : ''}
       <section class="card progress-card"><div class="row-between"><h3 class="label">Job progress</h3><b class="big-pct">${p.pct}%</b></div>
         ${progressBar(p.pct, 'Job progress')}<p class="muted">${p.done} of ${p.total} stages complete${isOpen(j) ? ` · Next: <b>${esc(ns.label)}</b>` : ''}</p></section>
       <section class="flow">
@@ -296,9 +297,11 @@ async function problems(id) {
 
 async function newProblem(id, q) {
   const j = await getJob(id);
-  const draftKey = `lcc-problem:${id}`;
-  const draft = JSON.parse(localStorage.getItem(draftKey) || '{}');
-  let category = q.get('cat') || draft.category || '', area = draft.area || '', blob = null, preview = null;
+  // the form is a draft on the device (text and photo), so closing the app loses nothing
+  const draftKey = `problem:${j.id}`;
+  const draft = (await store.getDraft(draftKey)) || {};
+  let category = q.get('cat') || draft.category || '', area = draft.area || '';
+  let blob = (await store.getDraftBlob(draftKey)) || null, preview = blob ? URL.createObjectURL(blob) : null;
   const AREAS = [...MATERIAL_AREAS, 'Whole property'];
   return {
     title: 'Report a problem', back: `#/jobs/${enc(id)}/problems`,
@@ -311,15 +314,15 @@ async function newProblem(id, q) {
       <p class="form-error" id="err" role="alert" hidden></p>`,
     footer: `<button class="btn btn-primary btn-lg" id="send">${icon('send')} Send to admin</button>`,
     mount(v, f) {
-      const save = () => localStorage.setItem(draftKey, JSON.stringify({ category, area, description: $('#desc', v).value }));
+      const save = () => store.saveDraft(draftKey, { category, area, description: $('#desc', v).value });
       const paintPhoto = () => {
         $('#ph', v).innerHTML = preview
           ? `<div class="photo-preview"><img src="${preview}" alt="Problem photo"><button class="frame-btn del" id="rm" aria-label="Remove photo">${icon('close')}</button></div>`
           : `<div class="btn-row"><button type="button" class="btn btn-secondary" id="cam">${icon('photo_camera')} Take photo</button><button type="button" class="btn btn-secondary" id="lib">${icon('photo_library')} Add photo</button></div>`;
         on(v, '#cam', 'click', () => add(true)); on(v, '#lib', 'click', () => add(false));
-        on(v, '#rm', 'click', () => { URL.revokeObjectURL(preview); blob = preview = null; paintPhoto(); });
+        on(v, '#rm', 'click', () => { URL.revokeObjectURL(preview); blob = preview = null; store.saveDraftBlob(draftKey, null); paintPhoto(); });
       };
-      const add = async (camera) => { const b = await pickPhoto({ camera }); if (!b) return; blob = b; preview = URL.createObjectURL(b); paintPhoto(); };
+      const add = async (camera) => { const b = await pickPhoto({ camera }); if (!b) return; blob = b; preview = URL.createObjectURL(b); store.saveDraftBlob(draftKey, b); paintPhoto(); };
       paintPhoto();
       on(v, 'input[name=cat]', 'change', (e, el) => { category = el.value; save(); });
       on(v, '[data-area]', 'click', (e, b) => { area = area === b.dataset.area ? '' : b.dataset.area; $$('[data-area]', v).forEach((x) => { x.classList.toggle('on', x.dataset.area === area); x.setAttribute('aria-pressed', x.dataset.area === area); }); save(); });
@@ -328,7 +331,7 @@ async function newProblem(id, q) {
         const description = $('#desc', v).value.trim(), err = $('#err', v);
         if (!category || !description) { err.hidden = false; err.textContent = !category ? 'Choose what happened.' : 'Describe the problem.'; (category ? $('#desc', v) : $('input[name=cat]', v)).focus(); return; }
         store.addProblem(id, { category, area: area === 'Whole property' ? 'Whole property' : area, description }, blob);
-        localStorage.removeItem(draftKey);
+        store.clearDraft(draftKey); store.saveDraftBlob(draftKey, null);
         toast(store.sync.reachable ? 'Problem reported' : 'Problem saved — it will send when you’re online');
         location.replace(`#/jobs/${enc(id)}/problems`);
       });
@@ -356,7 +359,7 @@ async function review(id, q, me) {
     mount(v, f) {
       on(f, '#submit', 'click', async () => {
         const ok = await confirmSheet({ title: admin ? 'Generate report?' : 'Submit report?', ok: admin ? 'Generate report' : 'Submit report',
-          detail: `<div class="confirm-detail">${icon('home')}<div><b>${esc(line1(j))}</b><br>${esc(line2(j))}<br><span class="mono">${esc(j.id)}</span></div></div>`,
+          detail: `<div class="confirm-detail">${icon('home')}<div><b>${esc(line1(j))}</b><br>${esc(line2(j))}<br><span class="mono">${esc(jobNo(j))}</span></div></div>`,
           text: admin ? 'The job will be marked complete.' : 'All required information has been completed. The admin will review it.' });
         if (!ok) return;
         const now = new Date().toISOString();
@@ -375,7 +378,7 @@ async function done(id, q, me) {
   return {
     title: 'Report', back: `#/jobs/${enc(id)}`, live: true,
     body: `<div class="state-card success">${icon('task_alt')}<h2>${me.role === 'admin' ? 'Report generated' : 'Report submitted'}</h2>
-        <p>${esc(line1(j))}, ${esc(line2(j))}<br><span class="mono">${esc(j.id)}</span></p></div>
+        <p>${esc(line1(j))}, ${esc(line2(j))}<br><span class="mono">${esc(jobNo(j))}</span></p></div>
       <div class="card pdf-card" id="pdf">${ready ? `<div class="pdf-state"><span class="spin" aria-hidden="true"></span><b>Generating report…</b></div>`
         : `<div class="pdf-state">${icon('cloud_upload')}<div><b>Saved on this phone</b><p class="muted">${online ? 'Sending now…' : 'It will be sent automatically when you’re back online.'} The PDF will be ready after that.</p></div></div>`}</div>`,
     footer: `<a class="btn btn-secondary btn-lg" href="#/home">${icon('home')} Back to home</a>`,
@@ -413,7 +416,7 @@ async function reportDetail(id, q, me) {
     actions: `<a class="icon-btn" href="/api/jobs/${enc(id)}/pdf" target="_blank" rel="noopener" aria-label="View full PDF report">${icon('picture_as_pdf')}</a>`,
     body: `
       <section class="report-head">${logo(56)}<div><b>LCC Bathrooms &amp; Services Ltd</b><small>Property condition / completion report</small></div></section>
-      <section class="card stat-list">${kv('Property', esc(address(j)))}${kv('Job ID', `<span class="mono">${esc(j.id)}</span>`)}
+      <section class="card stat-list">${kv('Property', esc(address(j)))}${kv('Job ID', `<span class="mono">${esc(jobNo(j))}</span>`)}
         ${kv('Date', fmtDate(j.reportGeneratedAt || j.submittedAt))}${kv('Employee', esc(j.assignedTo || '—'))}${kv('Status', chip(j))}
         ${j.personName ? kv('Person in charge', esc(j.personName + (j.personPhone ? ` (${j.personPhone})` : ''))) : ''}</section>
       ${p.before < 8 || p.after < 8 ? `<p class="notice warn">${icon('warning')}Photos incomplete: before ${p.before}/8, after ${p.after}/8.</p>` : ''}

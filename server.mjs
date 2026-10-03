@@ -8,6 +8,8 @@ import {
 import { homeStorage } from './lib/home-storage.mjs';
 import { PHOTO_ROOMS, MATERIAL_AREAS, STATUS, newJob, cleanPatch, materialItem, problemItem, slug } from './lib/jobs.mjs';
 import { reportPdf, pdfFilename } from './lib/pdf.mjs';
+import { pushRoutes, notify } from './lib/push.mjs';
+import { address } from './lib/jobs.mjs';
 
 const { DATABASE_URL, PORT = 4630 } = process.env;
 if (!DATABASE_URL) throw new Error('DATABASE_URL is required');
@@ -130,6 +132,11 @@ app.get('/api/jobs/:id', requireUser(), async (req, res) => res.json(await loadJ
 
 // unique Job ID per year: LCC-2026-00001, LCC-2026-00002, …
 app.post('/api/jobs', admin, async (req, res) => {
+  const clientId = req.body?.clientId;
+  if (clientId) { // created offline and sent again: hand back the job the first send made
+    const { rows } = await pool.query(`select data from jobs where data->>'clientId' = $1`, [String(clientId)]);
+    if (rows[0]) return res.json(rows[0].data);
+  }
   const year = new Date().getFullYear();
   for (let attempt = 0; attempt < 5; attempt++) {
     const { rows: [{ n }] } = await pool.query(
@@ -137,6 +144,7 @@ app.post('/api/jobs', admin, async (req, res) => {
     const job = newJob(`LCC-${year}-${String(n).padStart(5, '0')}`, req.body || {}, req.user.email);
     try {
       await pool.query('insert into jobs (id, data) values ($1, $2)', [job.id, job]);
+      if (job.assignedTo) notify(pool, { emails: [job.assignedTo] }, { title: 'New job assigned', body: address(job), url: `/#/jobs/${job.id}`, tag: job.id });
       return res.json(job);
     } catch (e) { if (e.code !== '23505') throw e; } // two admins at once: take the next number
   }
@@ -156,7 +164,14 @@ app.patch('/api/jobs/:id', requireUser(), async (req, res) => {
   const now = new Date().toISOString();
   if (patch.status === STATUS.adminReviewed) patch.reviewedAt = now;
   if ('assignedTo' in patch) patch.assignedAt = patch.assignedTo ? now : null;
-  res.json(await update(req, 'data || $2::jsonb', [patch]));
+  const before = await loadJob(req);
+  const job = await update(req, 'data || $2::jsonb', [patch]);
+  res.json(job);
+  // push notifications for the moments people wait for (never to the person who did it)
+  const where = { title: '', body: address(job), tag: job.id };
+  if (job.assignedTo && job.assignedTo !== before.assignedTo) notify(pool, { emails: [job.assignedTo], except: req.user.id }, { ...where, title: 'New job assigned', url: `/#/jobs/${job.id}` });
+  if (job.submittedAt && !before.submittedAt) notify(pool, { role: 'admin', except: req.user.id }, { ...where, title: 'Report submitted', body: `${address(job)} — by ${req.user.name}`, url: `/#/reports/${job.id}` });
+  if (job.status === STATUS.adminReviewed && before.status !== STATUS.adminReviewed && job.assignedTo) notify(pool, { emails: [job.assignedTo], except: req.user.id }, { ...where, title: 'Report reviewed', url: `/#/reports/${job.id}` });
 });
 
 // read-modify-write of one job under a row lock: for edits inside lists (materials, problems)
@@ -253,10 +268,13 @@ app.put('/api/jobs/:id/files/problem', requireUser(), jpeg, async (req, res) => 
 
 app.post('/api/jobs/:id/problems', requireUser(), async (req, res) => {
   const problem = problemItem(req.body || {}, req.user.email, req.params.id);
-  res.json(await withJob(req, (data) => {
+  let added = false;
+  const job = await withJob(req, (data) => {
     data.problems ??= [];
-    if (!data.problems.some((p) => p.id === problem.id)) data.problems.push(problem); // resend of a queued report
-  }));
+    if (!data.problems.some((p) => p.id === problem.id)) { data.problems.push(problem); added = true; } // else: resend of a queued report
+  });
+  res.json(job);
+  if (added) notify(pool, { role: 'admin', except: req.user.id }, { title: `Problem: ${problem.category}`, body: `${address(job)}${problem.area ? ` · ${problem.area}` : ''} — ${problem.description}`, url: `/#/jobs/${job.id}/problems`, tag: `${job.id}:problem` });
 });
 
 const fileKey = (req) => {
@@ -288,6 +306,7 @@ app.get('/api/jobs/:id/pdf', requireUser(), async (req, res) => {
   }).send(await reportPdf(job, images));
 });
 
+app.use('/api/push', requireUser(), pushRoutes(pool));
 app.use('/api', (req, res) => res.status(404).json({ error: 'Not found' }));
 
 // Cloudflare gives .js/.css a 4h browser cache, so index.html (never cached) points

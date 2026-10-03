@@ -36,3 +36,11 @@ update jobs set data = jsonb_set(data, '{materials}', (
     from jsonb_array_elements(items) m))
   from jsonb_each(data->'materials') e(area, items)))
 where exists (select 1 from jsonb_each(data->'materials') e(area, items), jsonb_array_elements(items) m where not m ? 'id');
+
+-- push notifications: one row per phone/browser that turned them on
+create table if not exists push_subscriptions (
+  endpoint   text primary key,
+  user_id    uuid not null references users(id) on delete cascade,
+  keys       jsonb not null,  -- {p256dh, auth}
+  created_at timestamptz not null default now()
+);

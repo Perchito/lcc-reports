@@ -1,5 +1,5 @@
 // Admin screens: new job, edit job details / assignment, team logins.
-import { esc, icon, on, $, $$, go, toast, sheet, confirmSheet, empty, skeleton, line1 } from './ui.js?v=__V__';
+import { esc, icon, on, $, $$, toast, sheet, confirmSheet, empty, jobNo } from './ui.js?v=__V__';
 import * as store from './store.js?v=__V__';
 import { STATUS, isOpen } from './jobs.mjs?v=__V__';
 
@@ -17,8 +17,13 @@ const CONTACT = [
 const field = ([k, label, ph, req, type, ac], value = '') => `<label class="field"><span>${label}${req ? '' : ' <small>(optional)</small>'}</span>
   <input id="${k}" name="${k}" type="${type}" placeholder="${ph}" value="${esc(value)}" autocomplete="${ac}" ${req ? 'required' : ''} ${k === 'postcode' ? 'autocapitalize="characters"' : ''}></label>`;
 
+// the employee list, kept on the device so jobs can be created and assigned with no signal
 async function employees() {
-  try { return (await store.api('/api/users')).filter((u) => u.active && u.role === 'employee'); } catch { return null; }
+  try {
+    const list = (await store.api('/api/users')).filter((u) => u.active && u.role === 'employee');
+    store.cacheUsers(list);
+    return list;
+  } catch { return (await store.cachedUsers()) || null; }
 }
 const assignSelect = (list, cur) => list
   ? `<select id="assignedTo" name="assignedTo"><option value="">— Not assigned yet —</option>${list.map((u) => `<option value="${esc(u.email)}" ${u.email === cur ? 'selected' : ''}>${esc(u.name)} · ${esc(u.email)}</option>`).join('')}
@@ -52,34 +57,30 @@ function validate(v) {
 const wirePin = (v) => on(v, '#eye', 'click', (e, b) => { const p = $('#keySafePin', v); p.type = p.type === 'password' ? 'text' : 'password'; b.innerHTML = icon(p.type === 'password' ? 'visibility' : 'visibility_off'); });
 
 // ── new job ─────────────────────────────────────────────
+// Saved through the outbox like everything else, so it works with no signal: the job gets a
+// temporary id and the real LCC-YYYY-NNNNN number as soon as it reaches the server.
+// The form is kept as a draft on the device while you type.
 async function newJob() {
   const users = await employees();
-  let dirty = false, saving = false;
+  const draft = (await store.getDraft('new-job')) || {};
+  const restored = Object.values(draft).some(Boolean);
   return {
     title: 'New job', back: '#/home', side: 'new',
-    body: `<p class="lead">Create the job — it gets its own Job ID and appears on the employee's phone once assigned.</p>${form({}, users, {})}`,
+    body: `${restored ? `<p class="notice">${icon('restore')}<span class="grow">Draft restored from earlier.</span><button class="btn btn-text btn-sm" id="clear">Clear</button></p>` : ''}
+      <p class="lead">Create the job — it appears on the employee's phone once assigned.${store.sync.reachable ? '' : ' <b>You’re offline:</b> it will be sent and get its Job ID when you’re back online.'}</p>${form(draft, users, {})}`,
     footer: `<button class="btn btn-primary btn-lg" id="save">${icon('add_home_work')} Create job</button>`,
-    dirty: () => dirty && !saving,
     mount(v, f) {
       wirePin(v);
-      on(v, 'input, select', 'input', () => { dirty = true; });
+      on(v, 'input, select', 'input', () => store.saveDraft('new-job', readForm(v)));
+      on(v, 'select', 'change', () => store.saveDraft('new-job', readForm(v)));
+      on(v, '#clear', 'click', async () => { await store.clearDraft('new-job'); window.dispatchEvent(new Event('lcc:redraw')); });
       $('#jobform', v).onsubmit = (e) => { e.preventDefault(); $('#save', f).click(); };
-      on(f, '#save', 'click', async (e, b) => {
+      on(f, '#save', 'click', async () => {
         if (!validate(v)) return;
-        const body = readForm(v);
-        b.disabled = true; saving = true;
-        try {
-          const job = await store.api('/api/jobs', { method: 'POST', body });
-          if (body.assignedTo) await store.api(`/api/jobs/${encodeURIComponent(job.id)}`, { method: 'PATCH', body: { assignedTo: body.assignedTo, status: STATUS.assigned } });
-          else await store.api(`/api/jobs/${encodeURIComponent(job.id)}`, { method: 'PATCH', body: { status: STATUS.readyToStart } });
-          await store.loadJob(job.id);
-          toast(`Job ${job.id} created`);
-          location.replace(`#/jobs/${encodeURIComponent(job.id)}`);
-        } catch (ex) {
-          saving = false; b.disabled = false;
-          const err = $('#err', v); err.hidden = false;
-          err.textContent = ex.offline ? 'No connection — new jobs need the internet to get their Job ID. Nothing was lost; try again when you’re online.' : ex.message;
-        }
+        const id = store.createJob(readForm(v));
+        await store.clearDraft('new-job');
+        toast(store.sync.reachable ? 'Job created' : 'Job saved — it will be sent when you’re online');
+        location.replace(`#/jobs/${encodeURIComponent(id)}`);
       });
     },
   };
@@ -90,15 +91,18 @@ async function editJob(id) {
   const j = store.job(id) || (await store.loadJob(id));
   if (!j) throw new Error('Job not found');
   const users = await employees();
-  let dirty = false;
+  const key = `edit-job:${j.id}`;
+  const draft = await store.getDraft(key);
   return {
     title: 'Edit job', back: `#/jobs/${encodeURIComponent(id)}`, side: 'jobs',
-    body: `<p class="lead"><span class="mono">${esc(j.id)}</span></p>${form(j, users, {})}`,
+    body: `${draft ? `<p class="notice">${icon('restore')}<span class="grow">Unsaved changes restored.</span><button class="btn btn-text btn-sm" id="clear">Discard</button></p>` : ''}
+      <p class="lead"><span class="mono">${esc(jobNo(j))}</span></p>${form({ ...j, ...draft }, users, {})}`,
     footer: `<button class="btn btn-primary btn-lg" id="save">${icon('save')} Save changes</button>`,
-    dirty: () => dirty,
     mount(v, f) {
       wirePin(v);
-      on(v, 'input, select', 'input', () => { dirty = true; });
+      on(v, 'input, select', 'input', () => store.saveDraft(key, readForm(v)));
+      on(v, 'select', 'change', () => store.saveDraft(key, readForm(v)));
+      on(v, '#clear', 'click', async () => { await store.clearDraft(key); window.dispatchEvent(new Event('lcc:redraw')); });
       $('#jobform', v).onsubmit = (e) => { e.preventDefault(); $('#save', f).click(); };
       on(f, '#save', 'click', () => {
         if (!validate(v)) return;
@@ -106,7 +110,7 @@ async function editJob(id) {
         if (!users && body.assignedTo === '') delete body.assignedTo;
         if ('assignedTo' in body && body.assignedTo !== j.assignedTo && [STATUS.draft, STATUS.readyToStart, STATUS.assigned].includes(j.status)) body.status = body.assignedTo ? STATUS.assigned : STATUS.readyToStart;
         store.patch(id, body);
-        dirty = false;
+        store.clearDraft(key);
         toast('Saved');
         location.replace(`#/jobs/${encodeURIComponent(id)}`);
       });

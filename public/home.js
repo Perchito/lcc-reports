@@ -1,8 +1,10 @@
 // Home: the employee's field dashboard, or the admin's overview.
-import { esc, icon, on, greeting, line1, line2, progressBar, skeleton, empty, chip, sheet } from './ui.js?v=__V__';
+import { esc, icon, on, greeting, line1, line2, jobNo, progressBar, skeleton, empty, chip, sheet } from './ui.js?v=__V__';
 import * as store from './store.js?v=__V__';
 import { progress, nextStep, displayStatus, isOpen, photoCount, materialCount } from './jobs.mjs?v=__V__';
 import { jobCard, notifications } from './lists.js?v=__V__';
+import { pushState, enablePush } from './push.js?v=__V__';
+import { toast } from './ui.js?v=__V__';
 
 const safeGet = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
 const safeSet = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
@@ -19,7 +21,23 @@ function installTip() {
   return `<div class="card tip">${icon('install_mobile')}<div class="grow"><b>Install the app</b><p class="muted">Add LCC Reports to your Home Screen to use it full-screen and offline.</p>
     <button class="btn btn-text btn-sm" id="howto">Show me how</button></div><button class="icon-btn" id="tipx" aria-label="Dismiss">${icon('close')}</button></div>`;
 }
+// one-time card: offer push notifications when they're possible and still off
+const pushCard = '<div id="pushcard"></div>';
+async function offerPush(v) {
+  if (safeGet('lcc-push-tip')) return;
+  const st = await pushState().catch(() => 'unsupported');
+  const el = v.querySelector('#pushcard');
+  if (st !== 'off' || !el) return;
+  el.innerHTML = `<div class="card tip">${icon('notifications_active')}<div class="grow"><b>Get notified</b><p class="muted">Know straight away when a job is assigned or a report is reviewed.</p>
+    <button class="btn btn-secondary btn-sm" id="pushon">Turn on notifications</button></div><button class="icon-btn" id="pushx" aria-label="Dismiss">${icon('close')}</button></div>`;
+  on(el, '#pushx', 'click', () => { safeSet('lcc-push-tip', '1'); el.innerHTML = ''; });
+  on(el, '#pushon', 'click', async () => {
+    try { await enablePush(); toast('Notifications on'); safeSet('lcc-push-tip', '1'); el.innerHTML = ''; }
+    catch (e) { toast(e.offline ? 'You need a connection to turn this on' : e.message, 'bad'); }
+  });
+}
 function wireTip(v) {
+  offerPush(v);
   on(v, '#tipx', 'click', (e, b) => { safeSet('lcc-install-tip', '1'); b.closest('.tip').remove(); });
   on(v, '#howto', 'click', () => {
     const ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
@@ -51,7 +69,7 @@ function employeeHome(me) {
     cont = `<a class="card continue" href="#/jobs/${esc(current.id)}">
       <span class="label">${started(current) ? 'Continue job' : 'Next job'}</span>
       <div class="job-card-top"><div class="grow"><h3>${esc(line1(current))}</h3><p>${esc(line2(current))}</p></div>${chip(current)}</div>
-      <span class="mono">${esc(current.id)}</span>
+      <span class="mono">${esc(jobNo(current))}</span>
       <dl class="mini-stats"><div><dt>Before photos</dt><dd>${p.before}/8</dd></div><div><dt>Materials</dt><dd>${materialCount(current)}</dd></div>
         <div><dt>Problems</dt><dd>${current.problems?.length || 0}</dd></div><div><dt>After photos</dt><dd>${p.after}/8</dd></div></dl>
       ${progressBar(p.pct, 'Job progress')}
@@ -75,7 +93,7 @@ function employeeHome(me) {
         <a href="#/report-problem">${icon('report_problem')}<span>Report problem</span></a>
         <a href="#/notifications">${icon('notifications')}<span>Notifications</span>${unread ? `<b class="badge">${unread}</b>` : ''}</a>
       </div>
-      ${installTip()}
+      ${pushCard}${installTip()}
       ${others.length ? `<h3 class="section-title">Up next</h3><div class="card-list">${others.slice(0, 3).map((j) => jobCard(j, me, { compact: true })).join('')}</div>
         ${others.length > 3 ? '<a class="btn btn-text" href="#/jobs">See all jobs</a>' : ''}` : ''}`,
     mount: wireTip,
@@ -112,7 +130,7 @@ function dashboard(me) {
       <div class="row-between"><h3 class="section-title">Recent jobs</h3><a class="btn btn-text btn-sm" href="#/jobs">All jobs ${icon('arrow_forward')}</a></div>
       ${jobs.length ? `<div class="card-list grid-2">${jobs.slice(0, 4).map((j) => jobCard(j, me)).join('')}</div>`
         : `<div class="card">${empty('add_home_work', 'No jobs yet', 'Create the first job to get started.', '<a class="btn btn-primary" href="#/new">New job</a>')}</div>`}
-      ${installTip()}`,
+      ${pushCard}${installTip()}`,
     mount: wireTip,
   };
 }

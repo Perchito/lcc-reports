@@ -316,6 +316,7 @@ dialog.viewer::backdrop { background: #000; }
 .quick a .i { font-size: 26px; color: var(--brand-strong); }
 .quick .badge { position: absolute; top: 8px; right: 10px; }
 .tip { display: flex; gap: 12px; align-items: flex-start; margin-top: 20px; }
+#pushcard:empty { display: none; }
 .tip > .i { color: var(--brand-strong); font-size: 28px; }
 .tip .btn-text { padding-left: 0; }
 
@@ -558,6 +559,10 @@ dialog.viewer::backdrop { background: #000; }
   #list .card-list:not(.admin-list .card-list) { grid-template-columns: repeat(3, 1fr); }
 }
 
+/* phones up to iPhone Pro size: room dots in two rows of 4 so each is a full 44px+ target */
+@media (max-width: 413px) {
+  .dots { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+}
 /* very small phones (iPhone SE 1st gen, 320px) */
 @media (max-width: 359px) {
   .quick { grid-template-columns: 1fr 1fr; }
@@ -567,7 +572,6 @@ dialog.viewer::backdrop { background: #000; }
   .tiles { grid-template-columns: 1fr; }
   .btn { padding-inline: 10px; }
   .btn-lg { font-size: 16px; }
-  .dots { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .segmented span { font-size: 13px; }
 }
 

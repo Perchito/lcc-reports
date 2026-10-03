@@ -1,5 +1,5 @@
 // Jobs, Reports and notification events — the list screens and the shared job card.
-import { esc, icon, on, chip, empty, skeleton, progressBar, line1, line2, fmtDate, $ } from './ui.js?v=__V__';
+import { esc, icon, on, chip, empty, skeleton, progressBar, line1, line2, jobNo, fmtDate, $ } from './ui.js?v=__V__';
 import * as store from './store.js?v=__V__';
 import { displayStatus, progress, photoCount, materialCount, address, isOpen } from './jobs.mjs?v=__V__';
 import { pdfActions, wirePdfActions } from './job.js?v=__V__';
@@ -13,7 +13,7 @@ export function jobCard(j, me, { compact = false } = {}) {
   const stat = (label, value, ok) => `<div class="stat ${ok ? 'is-ok' : ''}"><span>${label}</span><b>${value}</b></div>`;
   return `<a class="card job-card" href="#/jobs/${esc(j.id)}">
     <div class="job-card-top"><div class="grow"><h3>${esc(line1(j))}</h3><p>${esc(line2(j))}</p></div>${chip(j)}</div>
-    <div class="job-meta"><span class="mono">${esc(j.id)}</span>${me.role === 'admin' ? `<span>${icon('person')}${esc(j.assignedTo || 'Unassigned')}</span>` : ''}
+    <div class="job-meta"><span class="mono">${esc(jobNo(j))}</span>${me.role === 'admin' ? `<span>${icon('person')}${esc(j.assignedTo || 'Unassigned')}</span>` : ''}
       ${waiting ? `<span class="pending-dot">${icon('upload')}${waiting} waiting</span>` : ''}</div>
     ${compact ? '' : `<div class="stats">${stat('Before', `${p.before}/8`, p.before === 8)}${stat('Materials', materialCount(j))}${stat('Problems', j.problems?.length || 0)}${stat('After', `${p.after}/8`, p.after === 8)}</div>`}
     <div class="job-card-foot">${progressBar(p.pct, `${line1(j)} progress`)}<span class="pct">${p.pct}%</span><span class="open">Open ${icon('arrow_forward')}</span></div>
@@ -62,7 +62,7 @@ function jobsScreen(query, me) {
     return `<p class="count">${items.length} job${items.length === 1 ? '' : 's'}</p>
       <div class="card-list">${items.map((j) => jobCard(j, me)).join('')}</div>
       ${admin ? `<div class="table-wrap"><table class="table"><thead><tr>${th('id', 'Job ID')}${th('address', 'Property')}${th('employee', 'Employee')}${th('status', 'Status')}${th('progress', 'Progress')}${th('created', 'Created')}</tr></thead>
-        <tbody>${items.map((j) => `<tr data-href="#/jobs/${esc(j.id)}" tabindex="0"><td class="mono">${esc(j.id)}</td><td><b>${esc(line1(j))}</b><br><small>${esc(line2(j))}</small></td>
+        <tbody>${items.map((j) => `<tr data-href="#/jobs/${esc(j.id)}" tabindex="0"><td class="mono">${esc(jobNo(j))}</td><td><b>${esc(line1(j))}</b><br><small>${esc(line2(j))}</small></td>
           <td>${esc(j.assignedTo || '—')}</td><td>${chip(j)}</td><td><div class="table-progress">${progressBar(progress(j).pct)}<span>${progress(j).pct}%</span></div></td><td>${fmtDate(j.createdAt)}</td></tr>`).join('')}</tbody></table></div>` : ''}`;
   };
 
@@ -107,7 +107,7 @@ function reportsScreen(query, me) {
       const [ic, label] = REPORT_LABEL[reportState(j)];
       return `<article class="card report-card">
         <a href="#/reports/${esc(j.id)}" class="report-card-main"><div class="grow"><h3>${esc(line1(j))}</h3><p>${esc(line2(j))}</p>
-          <div class="job-meta"><span class="mono">${esc(j.id)}</span>${me.role === 'admin' && j.assignedTo ? `<span>${icon('person')}${esc(j.assignedTo)}</span>` : ''}</div></div>
+          <div class="job-meta"><span class="mono">${esc(jobNo(j))}</span>${me.role === 'admin' && j.assignedTo ? `<span>${icon('person')}${esc(j.assignedTo)}</span>` : ''}</div></div>
           <div class="report-state r-${reportState(j)}">${icon(ic)}<span>${label}</span><small>${fmtDate(j.submittedAt || j.reportGeneratedAt)}</small></div></a>
         <div class="report-card-actions"><a class="btn btn-secondary btn-sm" href="#/reports/${esc(j.id)}">View report ${icon('arrow_forward')}</a>${pdfActions(j, true)}</div>
       </article>`;
