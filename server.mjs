@@ -355,7 +355,8 @@ app.get('/api/jobs/:id/files/:file', requireUser(), async (req, res) => {
 app.get('/api/jobs/:id/pdf', requireUser(), async (req, res) => {
   const job = await loadJob(req);
   const images = {}; // photo path -> Buffer
-  await Promise.all(roomsOf(job).flatMap((r) => ['before', 'after'].flatMap((t) => photosOf(job, r, t))).map(async ({ path }) => {
+  const paths = [...roomsOf(job).flatMap((r) => ['before', 'after'].flatMap((t) => photosOf(job, r, t))).map((p) => p.path), ...(job.problems || []).map((p) => p.photoPath).filter(Boolean)];
+  await Promise.all(paths.map(async (path) => {
     const got = await storage.get(keyOf(path)).catch(() => null);
     if (got?.ok) images[path] = Buffer.from(await got.arrayBuffer());
   }));

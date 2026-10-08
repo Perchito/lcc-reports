@@ -32,9 +32,21 @@ async function fetchPdf(j) {
   pdfCache.set(j.id, { stamp, blob });
   return blob;
 }
-const pdfName = (j) => `lcc-report-${j.id}.pdf`;
+const pdfName = (j) => `LCC-Report-${j.id}.pdf`;
+// iPhone home-screen apps can't download from a link (they only open a viewer), so on phones the PDF goes
+// to the share sheet ("Guardar en Archivos", WhatsApp, AirDrop…). Elsewhere: a normal download.
 export async function downloadPdf(j) {
   const blob = await fetchPdf(j);
+  const file = new File([blob], pdfName(j), { type: 'application/pdf' });
+  if (navigator.canShare?.({ files: [file] }) && matchMedia('(pointer: coarse)').matches) {
+    const share = () => navigator.share({ files: [file], title: pdfName(j) });
+    try { return await share(); } catch (e) { if (e.name === 'AbortError') return; }
+    // the tap "expired" while the PDF was being made: one more tap opens the share sheet
+    const d = sheet(`<h2>PDF listo</h2><p class="muted">${esc(pdfName(j))} · ${(blob.size / 1048576).toFixed(1)} MB. Toca Guardar PDF y elige “Guardar en Archivos”.</p>
+      <div class="sheet-actions"><button class="btn btn-primary" data-save>${icon('download')} Guardar PDF</button><button class="btn btn-secondary" data-close>Cancelar</button></div>`);
+    $('[data-save]', d).onclick = async () => { try { await share(); d.close(); } catch (e) { if (e.name === 'AbortError') d.close(); else toast('No se pudo abrir el menú de compartir en este móvil', 'bad'); } };
+    return;
+  }
   const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: pdfName(j) });
   document.body.append(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 30_000);
