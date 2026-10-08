@@ -204,10 +204,5 @@ async function compress(file) {
   return new Promise((ok, fail) => canvas.toBlob((b) => (b ? ok(b) : fail(new Error('encode'))), 'image/jpeg', 0.82));
 }
 
-// ── logo (hexagon mark) ─────────────────────────────────
-// below ~72px the full lockup is unreadable, so small marks show just "LCC" + the bath
-export const logo = (size) => `
-  <div class="logo ${size < 72 ? 'compact' : ''}" style="--s:${size}px" aria-label="LCC Bathrooms &amp; Services Ltd" role="img">
-    <svg viewBox="0 0 100 100" aria-hidden="true"><polygon points="50,2 91.6,26 91.6,74 50,98 8.4,74 8.4,26" fill="none" stroke="currentColor" stroke-width="${size < 72 ? 4 : 2}" stroke-linejoin="round"/></svg>
-    <div class="logo-in"><b>LCC</b>${icon('bathtub')}${size < 72 ? '' : '<small>BATHROOMS &amp;<br>SERVICES LTD</small>'}</div>
-  </div>`;
+// ── logo (official LCC artwork, white background) ───────
+export const logo = (size) => `<img class="logo" src="/img/logo.png" style="--s:${size}px" alt="LCC Bathrooms &amp; Services Ltd">`;
