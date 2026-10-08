@@ -8,7 +8,7 @@ import {
 import * as store from './store.js?v=__V__';
 import {
   PHOTO_ROOMS, MATERIAL_AREAS, MATERIAL_STATUSES, MATERIAL_UNITS, PROBLEM_CATEGORIES, STATUS,
-  address, progress, nextStep, reviewChecklist, displayStatus, photoCount, materialList, isOpen, roomsOf, slug, MAX_ROOMS,
+  address, progress, nextStep, reviewChecklist, displayStatus, photoCount, materialList, isOpen, roomsOf, slug, MAX_ROOMS, photosOf, extrasOf,
 } from './jobs.mjs?v=__V__';
 
 const enc = encodeURIComponent;
@@ -171,6 +171,7 @@ async function photos(id, type, q, me) {
   const badge = { queued: ['schedule', 'Guardada en el móvil · pendiente de subir'], uploading: ['cloud_upload', 'Subiendo…'], failed: ['error', 'Error al subir'] }[cur]
     || (path ? ['cloud_done', 'Subida'] : null);
   const ref = !before && j.photos?.[room]?.beforePath; // after photos: show the before shot to match the angle
+  const extras = extrasOf(j, room, type);
   const lastMissing = rooms.every((r, k) => k === i || has(r));
 
   return {
@@ -186,6 +187,14 @@ async function photos(id, type, q, me) {
           ${badge ? `<span class="frame-badge b-${cur || 'done'}">${icon(badge[0])}${badge[1]}</span>` : ''}
           ${ref ? `<button class="frame-ref" id="ref" aria-label="Ver la foto de antes">${photoImg(ref, 'Foto de antes')}<span>Antes</span></button>` : ''}
         </div>
+        ${path ? `<div class="extras" aria-label="Más fotos de ${esc(tr(room))}">
+          <p class="extras-title">Más fotos de esta zona${extras.length ? ` <span>${extras.length}</span>` : ''}</p>
+          <div class="extras-row">${extras.map((x, k) => `
+            <div class="extra"><button class="extra-img" data-x="${k + 1}" aria-label="Ver foto ${k + 2}">${photoImg(x.path, `${tr(room)} foto ${k + 2}`)}</button>
+              ${store.extraPending(id, room, type, x.id) ? `<span class="extra-wait">${icon('schedule')}</span>` : ''}
+              <button class="extra-del" data-xdel="${esc(x.id)}" aria-label="Borrar foto ${k + 2}">${icon('close')}</button></div>`).join('')}
+            <button class="extra-add" id="xcam">${icon('add_a_photo')}<span>Foto</span></button>
+            <button class="extra-add" id="xlib">${icon('add_photo_alternate')}<span>Fototeca</span></button></div></div>` : ''}
         ${cur === 'failed' ? `<div class="notice bad">${icon('error')}<div><b>Error al subir la foto</b><br>La foto está guardada a salvo en este móvil. ${esc(store.slotOp(id, room, type)?.error || '')}
             <div class="btn-row"><button class="btn btn-secondary btn-sm" id="retry">Reintentar</button></div></div></div>` : ''}
         <div class="dots" role="tablist" aria-label="Zonas de fotos" style="--cols:${Math.min(total, 8)};--cols-sm:${Math.min(total, 4)}">${rooms.map((r, k) => `
@@ -199,21 +208,27 @@ async function photos(id, type, q, me) {
       : `<div class="btn-row"><button class="btn btn-secondary btn-lg icon-only" id="lib" aria-label="Elegir de la fototeca">${icon('photo_library')}</button>
           <button class="btn btn-primary btn-lg grow" id="shoot">${icon('photo_camera')} Hacer foto</button></div>`,
     mount(v, f) {
-      const take = async (camera) => {
-        const blob = await pickPhoto({ camera });
-        if (!blob) return;
-        await store.photo(id, room, type, blob);
-        toast('Foto hecha');
+      // the first photo fills the spot; any more (or with `extra`) are added as extra photos of it
+      const take = async (camera, extra = !!path) => {
+        const blobs = camera ? [await pickPhoto({ camera })].filter(Boolean) : await pickPhoto({ camera, multiple: true });
+        if (!blobs.length) return;
+        for (const [k, blob] of blobs.entries()) await (k || extra ? store.photoExtra(id, room, type, blob) : store.photo(id, room, type, blob));
+        toast(blobs.length > 1 ? `${blobs.length} fotos añadidas` : 'Foto hecha');
       };
-      on(f, '#shoot', 'click', () => take(true));
+      on(v, '#xcam', 'click', () => take(true, true));
+      on(v, '#xlib', 'click', () => take(false, true));
+      const mine = photosOf(j, room, type).map((x, k) => ({ src: x.path, label: `${tr(room)} · ${before ? 'Antes' : 'Después'} ${k + 1}` }));
+      on(v, '[data-x]', 'click', (e, b) => viewer(mine, Number(b.dataset.x)));
+      on(v, '[data-xdel]', 'click', async (e, b) => { if (await confirmSheet({ title: '¿Borrar foto?', text: `Se borrará esta foto extra de ${tr(room)}.`, ok: 'Borrar foto', danger: true })) store.deletePhotoExtra(id, room, type, b.dataset.xdel); });
+      on(f, '#shoot', 'click', () => take(true, false));
       on(v, '#shoot2', 'click', () => take(true));
       on(f, '#lib', 'click', () => take(false));
       on(document, '#spots', 'click', editSpots);
       on(v, '#spots3', 'click', editSpots);
       on(v, '#retry', 'click', () => store.retry(store.slotOp(id, room, type)?.id));
       on(v, '[data-i]', 'click', (e, b) => go_(Number(b.dataset.i)));
-      on(v, '#del', 'click', async () => { if (await confirmSheet({ title: '¿Borrar foto?', text: `Se borrará la foto ${before ? 'de antes' : 'de después'} de ${tr(room)}.`, ok: 'Borrar foto', danger: true })) store.deletePhoto(id, room, type); });
-      const all = rooms.map((r, k) => ({ src: j.photos?.[r]?.[`${type}Path`], label: `${k + 1}. ${tr(r)} · ${before ? 'Antes' : 'Después'}` })).filter((x) => x.src);
+      on(v, '#del', 'click', async () => { if (await confirmSheet({ title: '¿Borrar foto?', text: `Se borrará la foto ${before ? 'de antes' : 'de después'} de ${tr(room)}.${extras.length ? ' La siguiente foto de la zona pasará a ser la principal.' : ''}`, ok: 'Borrar foto', danger: true })) store.deletePhoto(id, room, type); });
+      const all = rooms.flatMap((r, k) => photosOf(j, r, type).map((x, n, l) => ({ src: x.path, label: `${k + 1}. ${tr(r)} · ${before ? 'Antes' : 'Después'}${l.length > 1 ? ` ${n + 1}` : ''}` })));
       on(v, '#zoom', 'click', () => viewer(all, all.findIndex((x) => x.src === path)));
       on(v, '#ref', 'click', () => viewer([{ src: ref, label: `${tr(room)} · Antes` }]));
       on(f, '#next', 'click', () => {
@@ -461,8 +476,12 @@ async function done(id, q, me) {
 async function reportDetail(id, q, me) {
   const j = await getJob(id);
   const admin = me.role === 'admin', p = progress(j);
-  const pairs = roomsOf(j).map((r) => [r, j.photos?.[r]?.beforePath, j.photos?.[r]?.afterPath]);
-  const gallery = pairs.flatMap(([r, b, a], k) => [b && { src: b, label: `${k + 1}. ${tr(r)} · Antes` }, a && { src: a, label: `${k + 1}. ${tr(r)} · Después` }]).filter(Boolean);
+  // row n of a spot pairs its n-th before photo with its n-th after photo
+  const pairs = roomsOf(j).map((r) => {
+    const b = photosOf(j, r, 'before').map((x) => x.path), a = photosOf(j, r, 'after').map((x) => x.path);
+    return [r, Array.from({ length: Math.max(1, b.length, a.length) }, (_, n) => [b[n], a[n]])];
+  });
+  const gallery = pairs.flatMap(([r, rows], k) => rows.flatMap(([b, a], n) => [b && { src: b, label: `${k + 1}. ${tr(r)} · Antes${rows.length > 1 ? ` ${n + 1}` : ''}` }, a && { src: a, label: `${k + 1}. ${tr(r)} · Después${rows.length > 1 ? ` ${n + 1}` : ''}` }])).filter(Boolean);
   const cell = (src, label, r, k) => src ? `<button class="cmp-photo" data-g="${gallery.findIndex((g) => g.src === src)}" aria-label="${esc(tr(r))} ${label}">${photoImg(src, `${tr(r)} ${label}`)}<span>${label}</span></button>`
     : `<div class="cmp-photo none">${icon('image_not_supported')}<span>${label}</span></div>`;
   const kv = (k, v) => `<div><span>${k}</span><b>${v}</b></div>`;
@@ -480,7 +499,7 @@ async function reportDetail(id, q, me) {
         ${j.personName ? kv('Persona de contacto', esc(j.personName + (j.personPhone ? ` (${j.personPhone})` : ''))) : ''}</section>
       ${!p.photos || p.before < p.photos || p.after < p.photos ? `<p class="notice warn">${icon('warning')}Fotos incompletas: antes ${p.before}/${p.photos}, después ${p.after}/${p.photos}.</p>` : ''}
       <h3 class="section-title">Antes y después</h3>
-      <div class="cmp-list">${pairs.map(([r, b, a], k) => `<div class="cmp-row"><h4>${k + 1}. ${esc(tr(r))}</h4><div class="cmp-pair">${cell(b, 'Antes', r, k)}${cell(a, 'Después', r, k)}</div></div>`).join('')}</div>
+      <div class="cmp-list">${pairs.map(([r, rows], k) => `<div class="cmp-row"><h4>${k + 1}. ${esc(tr(r))}${rows.length > 1 ? ` <span class="muted">· ${rows.length} pares</span>` : ''}</h4>${rows.map(([b, a], n) => `<div class="cmp-pair">${n && !b ? '<div></div>' : cell(b, 'Antes', r, k)}${n && !a ? '<div></div>' : cell(a, 'Después', r, k)}</div>`).join('')}</div>`).join('')}</div>
       <h3 class="section-title">Materiales <span>${mats.length}</span></h3>
       ${mats.length ? `<div class="card table-card">${mats.map((m) => `<div class="mat-line"><div class="grow"><b>${esc(m.description)}</b><small>${esc(tr(m.area))}${m.specification ? ` · ${esc(m.specification)}` : ''}</small></div><span class="qty">${qty(m.quantity)} ${esc(tr(m.unit))}</span>${matChip(m.status)}</div>`).join('')}</div>`
         : '<p class="muted">No hay materiales anotados en este trabajo.</p>'}

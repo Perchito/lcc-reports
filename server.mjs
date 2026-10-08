@@ -6,7 +6,7 @@ import {
   loginBlocked, loginFailed, loginOk,
 } from './lib/auth.mjs';
 import { homeStorage } from './lib/home-storage.mjs';
-import { MATERIAL_AREAS, MAX_ROOMS, STATUS, tr, newJob, cleanPatch, materialItem, problemItem, slug, roomsOf, findRoom, cleanRooms } from './lib/jobs.mjs';
+import { MATERIAL_AREAS, MAX_ROOMS, STATUS, tr, newJob, cleanPatch, materialItem, problemItem, slug, roomsOf, findRoom, cleanRooms, photosOf, dropMain, MAX_EXTRA } from './lib/jobs.mjs';
 import { reportPdf, pdfFilename } from './lib/pdf.mjs';
 import { pushRoutes, notify } from './lib/push.mjs';
 import { address } from './lib/jobs.mjs';
@@ -238,22 +238,61 @@ const room = (job, req) => {
 const jpeg = express.raw({ type: ['image/jpeg', 'image/png'], limit: '12mb' });
 const isImage = (b) => Buffer.isBuffer(b) && b.length > 4 && ((b[0] === 0xff && b[1] === 0xd8) || (b[0] === 0x89 && b[1] === 0x50));
 
-// photos live in storage as jobs/<id>/<room>_<before|after>.jpg, like the Flutter app's file names
+// photos live in storage as jobs/<id>/<room>_<before|after>.jpg, like the Flutter app's file names;
+// extra photos of a spot as <room>_<before|after>_<extra id>.jpg
+const keyOf = (path) => { const m = /^\/api\/jobs\/([^/]+)\/files\/([a-z0-9_]+\.jpg)/.exec(path || ''); return m && `jobs/${m[1]}/${m[2]}`; };
+const fileUrl = (id, file) => `/api/jobs/${id}/files/${file}?v=${Date.now()}`;
+
 app.put('/api/jobs/:id/photos/:room/:type', requireUser(), jpeg, async (req, res) => {
   if (!isImage(req.body)) throw bad(400, 'Envía una foto JPEG o PNG');
   const r = room(await loadJob(req), req), t = req.params.type;
   const file = `${slug(r)}_${t}.jpg`;
   await storage.put(`jobs/${req.params.id}/${file}`, req.body, req.headers['content-type']);
-  const patch = { [`${t}Path`]: `/api/jobs/${req.params.id}/files/${file}?v=${Date.now()}`, [`${t}TakenBy`]: req.user.email, [`${t}At`]: new Date().toISOString() };
-  res.json(await update(req, `jsonb_set(data, array['photos', $2], coalesce(data->'photos'->$2, '{}') || $3::jsonb)`, [r, patch]));
+  let old;
+  res.json(await withJob(req, (data) => {
+    const p = ((data.photos ??= {})[r] ??= {});
+    old = keyOf(p[`${t}Path`]); // after a promotion the main photo can be an extra's file
+    Object.assign(p, { [`${t}Path`]: fileUrl(req.params.id, file), [`${t}TakenBy`]: req.user.email, [`${t}At`]: new Date().toISOString() });
+  }));
+  if (old && old !== `jobs/${req.params.id}/${file}`) storage.del(old).catch(() => {});
 });
 
 app.delete('/api/jobs/:id/photos/:room/:type', requireUser(), async (req, res) => {
   const r = room(await loadJob(req), req), t = req.params.type;
-  const patch = { [`${t}Path`]: null, [`${t}TakenBy`]: null, [`${t}At`]: null };
-  const job = await update(req, `jsonb_set(data, array['photos', $2], coalesce(data->'photos'->$2, '{}') || $3::jsonb)`, [r, patch]);
-  storage.del(`jobs/${req.params.id}/${slug(r)}_${t}.jpg`).catch(() => {});
-  res.json(job);
+  let old;
+  res.json(await withJob(req, (data) => {
+    const p = data.photos?.[r];
+    if (!p?.[`${t}Path`]) return; // already gone
+    old = keyOf(p[`${t}Path`]);
+    dropMain(p, t);
+  }));
+  if (old) storage.del(old).catch(() => {});
+});
+
+// extra photos: the id comes from the device, so a resent upload replaces instead of duplicating
+const xid = (req) => { if (!/^[a-z0-9]{6,32}$/.test(req.params.xid)) throw bad(400, 'Identificador no válido'); return req.params.xid; };
+app.put('/api/jobs/:id/photos/:room/:type/:xid', requireUser(), jpeg, async (req, res) => {
+  if (!isImage(req.body)) throw bad(400, 'Envía una foto JPEG o PNG');
+  const r = room(await loadJob(req), req), t = req.params.type, id = xid(req);
+  const file = `${slug(r)}_${t}_${id}.jpg`;
+  await storage.put(`jobs/${req.params.id}/${file}`, req.body, req.headers['content-type']);
+  res.json(await withJob(req, (data) => {
+    const p = ((data.photos ??= {})[r] ??= {});
+    const photo = { id, path: fileUrl(req.params.id, file), by: req.user.email, at: new Date().toISOString() };
+    const list = (p[`${t}Extra`] ??= []), i = list.findIndex((x) => x.id === id);
+    if (i >= 0) list[i] = photo;
+    else if (!p[`${t}Path`]) Object.assign(p, { [`${t}Path`]: photo.path, [`${t}TakenBy`]: photo.by, [`${t}At`]: photo.at }); // main was deleted meanwhile: this one is it
+    else if (list.length >= MAX_EXTRA) throw bad(400, `Como máximo ${MAX_EXTRA + 1} fotos por zona`);
+    else list.push(photo);
+  }));
+});
+app.delete('/api/jobs/:id/photos/:room/:type/:xid', requireUser(), async (req, res) => {
+  const r = room(await loadJob(req), req), t = req.params.type, id = xid(req);
+  res.json(await withJob(req, (data) => {
+    const p = data.photos?.[r];
+    if (p?.[`${t}Extra`]) p[`${t}Extra`] = p[`${t}Extra`].filter((x) => x.id !== id);
+  }));
+  storage.del(`jobs/${req.params.id}/${slug(r)}_${t}_${id}.jpg`).catch(() => {});
 });
 
 // photo spots on a job: anyone working on it can add one on site; a spot can only be removed while it has no photos
@@ -272,7 +311,7 @@ app.delete('/api/jobs/:id/rooms/:room', requireUser(), async (req, res) => {
   res.json(await withJob(req, (data) => {
     const r = findRoom(data, req.params.room);
     if (!r) return; // already gone
-    if (data.photos?.[r]?.beforePath || data.photos?.[r]?.afterPath) throw bad(409, `“${tr(r)}” tiene fotos — bórralas primero`);
+    if (photosOf(data, r, 'before').length || photosOf(data, r, 'after').length) throw bad(409, `“${tr(r)}” tiene fotos — bórralas primero`);
     data.rooms = roomsOf(data).filter((x) => x !== r);
     delete data.photos?.[r];
   }));
@@ -315,13 +354,11 @@ app.get('/api/jobs/:id/files/:file', requireUser(), async (req, res) => {
 
 app.get('/api/jobs/:id/pdf', requireUser(), async (req, res) => {
   const job = await loadJob(req);
-  const images = {};
-  await Promise.all(roomsOf(job).flatMap((r) => ['before', 'after'].map(async (t) => {
-    const path = job.photos?.[r]?.[`${t}Path`];
-    if (!path) return;
-    const got = await storage.get(`jobs/${job.id}/${slug(r)}_${t}.jpg`).catch(() => null);
-    if (got?.ok) images[`${r}|${t}`] = Buffer.from(await got.arrayBuffer());
-  })));
+  const images = {}; // photo path -> Buffer
+  await Promise.all(roomsOf(job).flatMap((r) => ['before', 'after'].flatMap((t) => photosOf(job, r, t))).map(async ({ path }) => {
+    const got = await storage.get(keyOf(path)).catch(() => null);
+    if (got?.ok) images[path] = Buffer.from(await got.arrayBuffer());
+  }));
   res.set({
     'content-type': 'application/pdf', 'cache-control': 'private, no-store',
     'content-disposition': `${req.query.download ? 'attachment' : 'inline'}; filename="${pdfFilename(job)}"`,

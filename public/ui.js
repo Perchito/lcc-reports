@@ -182,16 +182,19 @@ export async function hydrate(root) {
 
 // ── photos: native camera / library, then resized for the report ──
 // 1920px long edge at JPEG 0.82 keeps detail for evidence and the PDF at ~0.4–0.8 MB.
-export function pickPhoto({ camera = true } = {}) {
+// `multiple` (library only): resolves to an array of blobs, possibly empty
+export function pickPhoto({ camera = true, multiple = false } = {}) {
   return new Promise((resolve) => {
-    const input = Object.assign(document.createElement('input'), { type: 'file', accept: 'image/*' });
+    const input = Object.assign(document.createElement('input'), { type: 'file', accept: 'image/*', multiple: multiple && !camera });
     if (camera) input.setAttribute('capture', 'environment');
     input.addEventListener('change', async () => {
-      const file = input.files[0];
-      if (!file) return resolve(null);
-      try { resolve(await compress(file)); } catch { toast('No se pudo leer la foto — inténtalo de nuevo', 'bad'); resolve(null); }
+      const out = [];
+      for (const file of input.files) {
+        try { out.push(await compress(file)); } catch { toast('No se pudo leer una foto — inténtalo de nuevo', 'bad'); }
+      }
+      resolve(multiple ? out : out[0] || null);
     }, { once: true });
-    input.addEventListener('cancel', () => resolve(null), { once: true });
+    input.addEventListener('cancel', () => resolve(multiple ? [] : null), { once: true });
     input.click();
   });
 }

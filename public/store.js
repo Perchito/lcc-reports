@@ -8,7 +8,7 @@
 //
 //   local change → IndexedDB outbox (queued) → server reachable → sending → server
 //   confirms → removed (job copy updated)   |   refused → kept as failed (retry/discard)
-import { PHOTO_ROOMS, MATERIAL_AREAS, newJob, roomsOf, slug } from './jobs.mjs?v=__V__';
+import { PHOTO_ROOMS, MATERIAL_AREAS, newJob, roomsOf, slug, dropMain } from './jobs.mjs?v=__V__';
 
 // ── IndexedDB: kv (job cache per user), outbox (changes), blobs (photos not yet uploaded) ──
 const db = new Promise((resolve, reject) => {
@@ -161,7 +161,18 @@ export function applyOp(j, o) {
     case 'patch': Object.assign(j, b); break;
     case 'photo': case 'photoDel': {
       const room = typeof b.room === 'number' ? PHOTO_ROOMS[b.room] : b.room, t = b.type; // number: queued by the first version
-      j.photos[room] = { ...j.photos[room], [`${t}Path`]: o.kind === 'photo' ? `local:${o.blobKey}` : null, [`${t}TakenBy`]: o.kind === 'photo' ? me?.email : null, [`${t}At`]: o.kind === 'photo' ? new Date(o.seq).toISOString() : null };
+      const p = (j.photos[room] = { ...j.photos[room] });
+      if (o.kind === 'photo') Object.assign(p, { [`${t}Path`]: `local:${o.blobKey}`, [`${t}TakenBy`]: me?.email, [`${t}At`]: new Date(o.seq).toISOString() });
+      else if (p[`${t}Path`]) dropMain(p, t);
+      break;
+    }
+    case 'photoX': case 'photoXDel': { // extra photos of a spot — same rules as the server
+      const p = (j.photos[b.room] = { ...j.photos[b.room] }), t = b.type;
+      const list = (p[`${t}Extra`] = (p[`${t}Extra`] || []).filter((x) => x.id !== b.xid));
+      if (o.kind === 'photoXDel') break;
+      const photo = { id: b.xid, path: `local:${o.blobKey}`, by: me?.email, at: new Date(o.seq).toISOString() };
+      if (!p[`${t}Path`]) Object.assign(p, { [`${t}Path`]: photo.path, [`${t}TakenBy`]: photo.by, [`${t}At`]: photo.at });
+      else list.push(photo);
       break;
     }
     case 'roomAdd': if (!roomsOf(j).some((r) => slug(r) === slug(b.name))) { j.rooms = [...roomsOf(j), b.name]; (j.photos ??= {})[b.name] ??= {}; } break;
@@ -199,6 +210,8 @@ export const patch = (jobId, body) => enqueue({ id: `patch:${jobId}:${rid()}`, j
 // photo slots are addressed by the spot's name (slug in ids and URLs)
 export const photo = (jobId, room, type, blob) => enqueue({ id: `slot:${jobId}:${slug(room)}:${type}`, jobId, kind: 'photo', body: { room, type } }, blob);
 export const deletePhoto = (jobId, room, type) => enqueue({ id: `slot:${jobId}:${slug(room)}:${type}`, jobId, kind: 'photoDel', body: { room, type } });
+export const photoExtra = (jobId, room, type, blob, xid = rid()) => enqueue({ id: `xslot:${jobId}:${slug(room)}:${type}:${xid}`, jobId, kind: 'photoX', body: { room, type, xid } }, blob);
+export const deletePhotoExtra = (jobId, room, type, xid) => enqueue({ id: `xslot:${jobId}:${slug(room)}:${type}:${xid}`, jobId, kind: 'photoXDel', body: { room, type, xid } });
 export const addRoom = (jobId, name) => enqueue({ id: `room:${jobId}:${slug(name)}:${rid()}`, jobId, kind: 'roomAdd', body: { name } });
 export const removeRoom = (jobId, name) => enqueue({ id: `room:${jobId}:${slug(name)}:${rid()}`, jobId, kind: 'roomDel', body: { name } });
 export const addMaterial = (jobId, area, item) => { const id = item.id || rid(); enqueue({ id: `mat:${jobId}:${id}:${rid()}`, jobId, kind: 'matAdd', body: { area, item: { ...item, id } } }); return id; };
@@ -222,6 +235,10 @@ async function send(o) {
       if (!blob) throw Object.assign(new Error('La foto ya no está en este móvil — vuelve a hacerla'), { status: 410 });
       return api(`${base}/photos/${enc(typeof b.room === 'number' ? b.room : slug(b.room))}/${b.type}`, { method: 'PUT', raw: blob });
     case 'photoDel': return api(`${base}/photos/${enc(typeof b.room === 'number' ? b.room : slug(b.room))}/${b.type}`, { method: 'DELETE' });
+    case 'photoX':
+      if (!blob) throw Object.assign(new Error('La foto ya no está en este móvil — vuelve a hacerla'), { status: 410 });
+      return api(`${base}/photos/${enc(slug(b.room))}/${b.type}/${b.xid}`, { method: 'PUT', raw: blob });
+    case 'photoXDel': return api(`${base}/photos/${enc(slug(b.room))}/${b.type}/${b.xid}`, { method: 'DELETE' });
     case 'roomAdd': return api(`${base}/rooms`, { method: 'POST', body: b });
     case 'roomDel': return api(`${base}/rooms/${enc(slug(b.name))}`, { method: 'DELETE' });
     case 'matAdd': return api(`${base}/materials`, { method: 'POST', body: b });
@@ -303,8 +320,10 @@ export function slotState(jobId, room, type) {
   if (o.state === 'failed') return 'failed';
   return sync.sendingId === o.id ? 'uploading' : 'queued';
 }
+/** True while an extra photo is still waiting to upload */
+export const extraPending = (jobId, room, type, xid) => ops.some((x) => x.id === `xslot:${canon(jobId)}:${slug(room)}:${type}:${xid}` && x.kind === 'photoX');
 export const slotOp = (jobId, room, type) => ops.find((x) => x.id === `slot:${canon(jobId)}:${slug(room)}:${type}`);
-export const OP_LABEL = { roomAdd: 'Nueva zona de fotos', roomDel: 'Zona de fotos quitada', create: 'Nuevo trabajo', patch: 'Cambio en el trabajo', photo: 'Foto', photoDel: 'Foto borrada', matAdd: 'Nuevo material', matEdit: 'Cambio de material', matDel: 'Material quitado', problem: 'Problema comunicado' };
+export const OP_LABEL = { roomAdd: 'Nueva zona de fotos', roomDel: 'Zona de fotos quitada', create: 'Nuevo trabajo', patch: 'Cambio en el trabajo', photo: 'Foto', photoDel: 'Foto borrada', photoX: 'Foto extra', photoXDel: 'Foto extra borrada', matAdd: 'Nuevo material', matEdit: 'Cambio de material', matDel: 'Material quitado', problem: 'Problema comunicado' };
 
 // ── drafts (forms in progress) and the employee list, per user, wiped on sign-out ──
 export const getDraft = (key) => kvGet(`draft:${me.id}:${key}`);

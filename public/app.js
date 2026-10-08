@@ -310,7 +310,7 @@ function changePassword() {
 // ── Sync & offline ──────────────────────────────────────
 function syncScreen() {
   const s = store.sync, list = store.pending();
-  const photos = list.filter((o) => o.kind === 'photo' || (o.kind === 'problem' && o.blobKey)).length;
+  const photos = list.filter((o) => o.kind === 'photo' || o.kind === 'photoX' || (o.kind === 'problem' && o.blobKey)).length;
   const failed = list.filter((o) => o.state === 'failed');
   return {
     title: 'Sincronización', back: '#/more', live: true, side: 'more',
@@ -326,7 +326,7 @@ function syncScreen() {
         <div class="card failed-op"><div><b>${store.OP_LABEL[o.kind]}</b> · ${esc(o.jobId)}<p class="muted">${esc(o.error)}</p></div>
           <div class="btn-row"><button class="btn btn-secondary btn-sm" data-retry="${esc(o.id)}">Reintentar</button><button class="btn btn-text btn-sm danger" data-discard="${esc(o.id)}">Descartar</button></div></div>`).join('')}` : ''}
       ${list.length ? `<h3 class="section-title">Pendiente de enviar</h3><div class="list-card">${list.filter((o) => o.state !== 'failed').map((o) => `
-        <div class="list-row static">${icon(o.kind === 'photo' ? 'photo_camera' : 'edit')}<span>${store.OP_LABEL[o.kind]} · ${esc(o.jobId)}</span><span class="row-meta">${store.sync.sendingId === o.id ? 'Enviando…' : 'En cola'}</span></div>`).join('')}</div>`
+        <div class="list-row static">${icon(o.kind === 'photo' || o.kind === 'photoX' ? 'photo_camera' : 'edit')}<span>${store.OP_LABEL[o.kind]} · ${esc(o.jobId)}</span><span class="row-meta">${store.sync.sendingId === o.id ? 'Enviando…' : 'En cola'}</span></div>`).join('')}</div>`
         : `<div class="state-card small">${icon('cloud_done')}<h2>Todo sincronizado</h2><p>Tu trabajo está a salvo en el servidor.</p></div>`}
       <p class="muted small">Lo que hagas sin cobertura se guarda en este móvil y se envía solo cuando vuelva la conexión.</p>`,
     footer: `<button class="btn btn-primary btn-lg" id="now">${icon('sync')} Sincronizar ahora</button>`,
