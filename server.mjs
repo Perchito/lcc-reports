@@ -96,7 +96,7 @@ app.post('/api/users', admin, async (req, res) => {
   const email = String(req.body?.email || '').trim().toLowerCase(), name = String(req.body?.name || '').trim();
   const role = req.body?.role === 'admin' ? 'admin' : 'employee';
   if (!/^\S+@\S+\.\S+$/.test(email) || !name) throw bad(400, 'Hace falta un nombre y un correo válido');
-  const password = newPassword();
+  const password = 'bathrooms'; // Luis's choice: every new account starts on this; change it in Más
   await pool.query('insert into users (email, name, role, pass_hash) values ($1, $2, $3, $4)', [email, name, role, hashPassword(password)]);
   res.json({ email, password });
 });
