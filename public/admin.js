@@ -1,7 +1,7 @@
 // Admin screens: new job, edit job details / assignment, team logins.
 import { esc, icon, on, $, $$, toast, sheet, confirmSheet, empty, jobNo, tr } from './ui.js?v=__V__';
 import * as store from './store.js?v=__V__';
-import { STATUS, isOpen, PHOTO_ROOMS, MAX_ROOMS, slug } from './jobs.mjs?v=__V__';
+import { STATUS, isOpen, PHOTO_ROOMS, DEFAULT_ROOMS, MAX_ROOMS, slug } from './jobs.mjs?v=__V__';
 
 const PROPERTY = [
   ['houseNumber', 'Número / piso', 'p. ej. 12 o Flat 4B', true, 'text', 'address-line1'],
@@ -74,7 +74,7 @@ function form(values, users, { spots } = {}) {
     <section class="form-section"><h3 class="section-title">Persona de contacto</h3>${CONTACT.map((f) => field(f, values[f[0]])).join('')}</section>
     <section class="form-section"><h3 class="section-title">Asignar a</h3><label class="field"><span>Empleado</span>${assignSelect(users, values.assignedTo)}</label>
       ${users && !users.length ? '<p class="muted small">Aún no hay empleados — <a href="#/team">añádelos en la página Equipo</a>.</p>' : ''}</section>
-    ${spots ? spotsEditor(Array.isArray(values.rooms) ? values.rooms : [...PHOTO_ROOMS]) : ''}
+    ${spots ? spotsEditor(Array.isArray(values.rooms) ? values.rooms : [...DEFAULT_ROOMS]) : ''}
     <p class="form-error" id="err" role="alert" hidden></p></form>`;
 }
 function readForm(v) {
