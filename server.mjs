@@ -8,6 +8,7 @@ import {
 import { homeStorage } from './lib/home-storage.mjs';
 import { MATERIAL_AREAS, MAX_ROOMS, STATUS, tr, newJob, cleanPatch, materialItem, problemItem, slug, roomsOf, findRoom, cleanRooms, photosOf, dropMain, MAX_EXTRA } from './lib/jobs.mjs';
 import { reportPdf, pdfFilename } from './lib/pdf.mjs';
+import { sendEmail, emailConfigured } from './lib/mailer.mjs';
 import { pushRoutes, notify } from './lib/push.mjs';
 import { address } from './lib/jobs.mjs';
 
@@ -186,7 +187,10 @@ app.patch('/api/jobs/:id', requireUser(), async (req, res) => {
   // push notifications for the moments people wait for (never to the person who did it)
   const where = { title: '', body: address(job), tag: job.id };
   if (job.assignedTo && job.assignedTo !== before.assignedTo) notify(pool, { emails: [job.assignedTo], except: req.user.id }, { ...where, title: 'Nuevo trabajo asignado', url: `/#/jobs/${job.id}` });
-  if (job.submittedAt && !before.submittedAt) notify(pool, { role: 'admin', except: req.user.id }, { ...where, title: 'Informe enviado', body: `${address(job)} — de ${req.user.name}`, url: `/#/reports/${job.id}` });
+  if (job.submittedAt && !before.submittedAt) {
+    notify(pool, { role: 'admin', except: req.user.id }, { ...where, title: 'Informe enviado', body: `${address(job)} — de ${req.user.name}`, url: `/#/reports/${job.id}` });
+    emailReport(job, req.user.name).catch((e) => console.error(`[email] report ${job.id} failed:`, e.message));
+  }
   if (job.status === STATUS.adminReviewed && before.status !== STATUS.adminReviewed && job.assignedTo) notify(pool, { emails: [job.assignedTo], except: req.user.id }, { ...where, title: 'Informe revisado', url: `/#/reports/${job.id}` });
 });
 
@@ -368,19 +372,36 @@ app.get('/api/jobs/:id/files/:file', requireUser(), async (req, res) => {
     .send(Buffer.from(await r.arrayBuffer()));
 });
 
-app.get('/api/jobs/:id/pdf', requireUser(), async (req, res) => {
-  const job = await loadJob(req);
+// the report PDF with every photo it shows
+async function jobPdf(job) {
   const images = {}; // photo path -> Buffer
   const paths = [...roomsOf(job).flatMap((r) => ['before', 'after'].flatMap((t) => photosOf(job, r, t))).map((p) => p.path), ...(job.problems || []).map((p) => p.photoPath).filter(Boolean)];
   await Promise.all(paths.map(async (path) => {
     const got = await storage.get(keyOf(path)).catch(() => null);
     if (got?.ok) images[path] = Buffer.from(await got.arrayBuffer());
   }));
+  return reportPdf(job, images);
+}
+
+app.get('/api/jobs/:id/pdf', requireUser(), async (req, res) => {
+  const job = await loadJob(req);
   res.set({
     'content-type': 'application/pdf', 'cache-control': 'private, no-store',
     'content-disposition': `${req.query.download ? 'attachment' : 'inline'}; filename="${pdfFilename(job)}"`,
-  }).send(await reportPdf(job, images));
+  }).send(await jobPdf(job));
 });
+
+// every submitted report goes to the office by email, PDF attached (REPORT_EMAIL_TO, default Daniel)
+async function emailReport(job, by) {
+  if (!emailConfigured()) return console.warn(`[email] not set up — report ${job.id} not emailed`);
+  const to = process.env.REPORT_EMAIL_TO || 'daniel@lccbathroom-services.com';
+  await sendEmail({
+    to, subject: `Informe terminado: ${address(job)} (${job.id})`,
+    text: `${by} ha enviado el informe del trabajo ${job.id}.\n\n${address(job)}\n\nEl informe en PDF va adjunto. También puedes verlo en la app: https://lcc.perchito.app/#/reports/${job.id}`,
+    attachments: [{ filename: pdfFilename(job), content: await jobPdf(job), contentType: 'application/pdf' }],
+  });
+  console.log(`[email] report ${job.id} sent to ${to}`);
+}
 
 app.use('/api/push', requireUser(), pushRoutes(pool));
 app.use('/api', (req, res) => res.status(404).json({ error: 'No encontrado' }));
