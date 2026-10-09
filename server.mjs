@@ -308,11 +308,13 @@ app.put('/api/jobs/:id/photos/:room/:type/:xid', requireUser(), jpeg, async (req
 });
 app.delete('/api/jobs/:id/photos/:room/:type/:xid', requireUser(), async (req, res) => {
   const r = room(await loadJob(req), req), t = req.params.type, id = xid(req);
+  let old;
   res.json(await withJob(req, (data) => {
     const p = data.photos?.[r];
+    old = keyOf(p?.[`${t}Extra`]?.find((x) => x.id === id)?.path); // its stored file: the spot may have been renamed since
     if (p?.[`${t}Extra`]) p[`${t}Extra`] = p[`${t}Extra`].filter((x) => x.id !== id);
   }));
-  storage.del(`jobs/${req.params.id}/${slug(r)}_${t}_${id}.jpg`).catch(() => {});
+  if (old) storage.del(old).catch(() => {});
 });
 
 // photo spots on a job: anyone working on it can add one on site; a spot can only be removed while it has no photos
@@ -325,6 +327,19 @@ app.post('/api/jobs/:id/rooms', requireUser(), async (req, res) => {
     if (rooms.length >= MAX_ROOMS) throw bad(400, `Como máximo ${MAX_ROOMS} zonas de fotos`);
     data.rooms = [...rooms, name];
     (data.photos ??= {})[name] ??= {};
+  }));
+});
+// rename a spot: its photos move with it (their files keep their old names — the paths are stored on the job)
+app.patch('/api/jobs/:id/rooms/:room', requireUser(), async (req, res) => {
+  const [name] = cleanRooms([req.body?.name]);
+  if (!name) throw bad(400, 'Ponle un nombre a la zona');
+  res.json(await withJob(req, (data) => {
+    const r = findRoom(data, req.params.room), rooms = [...roomsOf(data)];
+    if (!r) { if (rooms.includes(name)) return; throw bad(404, 'Esa zona de fotos ya no está en este trabajo'); } // resent rename
+    if (r === name) return;
+    if (rooms.some((x) => x !== r && slug(x) === slug(name))) throw bad(409, `Ya hay una zona “${tr(name)}”`);
+    data.rooms = rooms.map((x) => (x === r ? name : x));
+    if (data.photos?.[r]) { data.photos[name] = data.photos[r]; delete data.photos[r]; }
   }));
 });
 app.delete('/api/jobs/:id/rooms/:room', requireUser(), async (req, res) => {

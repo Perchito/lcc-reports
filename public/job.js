@@ -259,13 +259,20 @@ async function photos(id, type, q, me) {
   };
 }
 
-// add / remove photo spots on a job (works offline). A spot with a before or after photo can't be removed.
+// add / rename / remove photo spots on a job (works offline). A spot with a before or after photo can't be removed,
+// but it can be renamed: its photos move with it.
 function spotsSheet(j, type) {
+  let editing = null; // the spot being renamed
   const draw = () => {
     const cur = store.job(j.id) || j, rooms = roomsOf(cur);
     const taken = (r) => !!(cur.photos?.[r]?.beforePath || cur.photos?.[r]?.afterPath);
     return `<h2>Zonas de fotos</h2><p class="muted">Se usan las mismas zonas para las fotos de antes y de después. ${rooms.length} en este trabajo.</p>
-      <div class="list-card spots-list">${rooms.map((r, k) => `<div class="list-row static"><span class="spot-no">${k + 1}</span><span>${esc(tr(r))}</span>
+      <div class="list-card spots-list">${rooms.map((r, k) => r === editing
+        ? `<form class="list-row static ren-spot" id="renspot" novalidate><span class="spot-no">${k + 1}</span>
+            <input id="rename" value="${esc(tr(r))}" autocomplete="off" enterkeyhint="done" aria-label="Nuevo nombre de la zona">
+            <button class="btn btn-primary btn-sm">${icon('check')} Guardar</button></form>`
+        : `<div class="list-row static"><span class="spot-no">${k + 1}</span><span>${esc(tr(r))}</span>
+        <button class="icon-btn" data-ren="${esc(r)}" aria-label="Cambiar nombre de ${esc(tr(r))}">${icon('edit')}</button>
         ${taken(r) ? `<span class="row-meta">${icon('photo_camera')}</span>` : `<button class="icon-btn danger" data-rm="${esc(r)}" aria-label="Quitar ${esc(tr(r))}">${icon('remove_circle_outline')}</button>`}</div>`).join('')
         || '<p class="muted" style="padding:16px">Aún no hay zonas.</p>'}</div>
       <form id="addspot" class="add-spot" novalidate><input id="spotname" placeholder="p. ej. Pasillo, Jardín, Cocina (lado 3)" autocomplete="off" enterkeyhint="done" aria-label="Nombre de la nueva zona">
@@ -290,12 +297,26 @@ function spotsSheet(j, type) {
     $('#addspot', d).onsubmit = (e) => { e.preventDefault(); add($('#spotname', d).value); };
     on(d, '[data-add]', 'click', (e, b) => add(b.dataset.add));
     on(d, '[data-rm]', 'click', (e, b) => { store.removeRoom(j.id, b.dataset.rm); toast(`${tr(b.dataset.rm)} quitada`); setTimeout(() => repaint(d), 50); });
+    on(d, '[data-ren]', 'click', (e, b) => { editing = b.dataset.ren; repaint(d, '#rename'); });
+    const ren = $('#renspot', d);
+    if (ren) ren.onsubmit = (e) => {
+      e.preventDefault();
+      const from = editing, name = $('#rename', d).value.trim().replace(/\s+/g, ' ').slice(0, 60);
+      const rooms = roomsOf(store.job(j.id) || j);
+      if (!name) { err.hidden = false; err.textContent = 'Escribe un nombre para la zona.'; return; }
+      editing = null;
+      if (name !== tr(from) && name !== from) {
+        if (rooms.some((r) => r !== from && slug(r) === slug(name))) { editing = from; err.hidden = false; err.textContent = `“${name}” ya está en la lista.`; return; }
+        store.renameRoom(j.id, from, name); toast(`Zona renombrada: ${name}`);
+      }
+      setTimeout(() => repaint(d), 50);
+    };
   }
-  function repaint(d) {
+  function repaint(d, focus = '#spotname') {
     d.innerHTML = `<div class="sheet-grab" aria-hidden="true"></div>${draw()}`;
     $$('[data-close]', d).forEach((b) => b.addEventListener('click', () => d.close()));
     wire(d);
-    $('#spotname', d)?.focus();
+    const f = $(focus, d); f?.focus(); if (focus === '#rename') f?.select();
   }
   d.addEventListener('close', redraw); // the capture screen re-reads the list (and keeps its place)
 }

@@ -604,3 +604,5 @@ dialog.viewer::backdrop { background: #000; }
 .spot-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
 .spot-chip { display: inline-flex; align-items: center; gap: 8px; padding: 2px 0 2px 6px; border-radius: 12px; background: var(--card); box-shadow: var(--shadow); font-weight: 600; font-size: 15px; }
 .spot-chip .icon-btn { width: 40px; height: 40px; color: var(--muted); }
+.ren-spot { gap: 8px; }
+.ren-spot input { flex: 1; min-width: 0; }

@@ -193,6 +193,10 @@ export function applyOp(j, o) {
     }
     case 'roomAdd': if (!roomsOf(j).some((r) => slug(r) === slug(b.name))) { j.rooms = [...roomsOf(j), b.name]; (j.photos ??= {})[b.name] ??= {}; } break;
     case 'roomDel': j.rooms = roomsOf(j).filter((r) => r !== b.name); delete j.photos?.[b.name]; break;
+    case 'roomRen': if (roomsOf(j).includes(b.from) && !roomsOf(j).some((r) => r !== b.from && slug(r) === slug(b.to))) {
+      j.rooms = roomsOf(j).map((r) => (r === b.from ? b.to : r));
+      if (j.photos?.[b.from]) { j.photos[b.to] = j.photos[b.from]; delete j.photos[b.from]; }
+    } break;
     case 'matAdd': { const f = findMat(b.item.id); if (f) j.materials[f.area].splice(f.i, 1); (j.materials[b.area] ??= []).push({ createdBy: me?.email, ...b.item }); break; }
     case 'matEdit': { const f = findMat(b.mid); if (f) { const item = { ...j.materials[f.area][f.i], ...b.fields }; j.materials[f.area].splice(f.i, 1); (j.materials[b.fields.area || f.area] ??= []).push(item); delete item.area; } break; }
     case 'matDel': { const f = findMat(b.mid); if (f) j.materials[f.area].splice(f.i, 1); break; }
@@ -229,6 +233,7 @@ export const deletePhoto = (jobId, room, type) => enqueue({ id: `slot:${jobId}:$
 export const photoExtra = (jobId, room, type, blob, xid = rid()) => enqueue({ id: `xslot:${jobId}:${slug(room)}:${type}:${xid}`, jobId, kind: 'photoX', body: { room, type, xid } }, blob);
 export const deletePhotoExtra = (jobId, room, type, xid) => enqueue({ id: `xslot:${jobId}:${slug(room)}:${type}:${xid}`, jobId, kind: 'photoXDel', body: { room, type, xid } });
 export const addRoom = (jobId, name) => enqueue({ id: `room:${jobId}:${slug(name)}:${rid()}`, jobId, kind: 'roomAdd', body: { name } });
+export const renameRoom = (jobId, from, to) => enqueue({ id: `room:${jobId}:${slug(from)}:${rid()}`, jobId, kind: 'roomRen', body: { from, to } });
 export const removeRoom = (jobId, name) => enqueue({ id: `room:${jobId}:${slug(name)}:${rid()}`, jobId, kind: 'roomDel', body: { name } });
 export const addMaterial = (jobId, area, item) => { const id = item.id || rid(); enqueue({ id: `mat:${jobId}:${id}:${rid()}`, jobId, kind: 'matAdd', body: { area, item: { ...item, id } } }); return id; };
 export const editMaterial = (jobId, mid, fields) => enqueue({ id: `mat:${jobId}:${mid}:${rid()}`, jobId, kind: 'matEdit', body: { mid, fields } });
@@ -257,6 +262,7 @@ async function send(o) {
     case 'photoXDel': return api(`${base}/photos/${enc(slug(b.room))}/${b.type}/${b.xid}`, { method: 'DELETE' });
     case 'roomAdd': return api(`${base}/rooms`, { method: 'POST', body: b });
     case 'roomDel': return api(`${base}/rooms/${enc(slug(b.name))}`, { method: 'DELETE' });
+    case 'roomRen': return api(`${base}/rooms/${enc(slug(b.from))}`, { method: 'PATCH', body: { name: b.to } });
     case 'matAdd': return api(`${base}/materials`, { method: 'POST', body: b });
     case 'matEdit': return api(`${base}/materials/${enc(b.mid)}`, { method: 'PATCH', body: b.fields });
     case 'matDel': return api(`${base}/materials/${enc(b.mid)}`, { method: 'DELETE' });
@@ -339,7 +345,7 @@ export function slotState(jobId, room, type) {
 /** True while an extra photo is still waiting to upload */
 export const extraPending = (jobId, room, type, xid) => ops.some((x) => x.id === `xslot:${canon(jobId)}:${slug(room)}:${type}:${xid}` && x.kind === 'photoX');
 export const slotOp = (jobId, room, type) => ops.find((x) => x.id === `slot:${canon(jobId)}:${slug(room)}:${type}`);
-export const OP_LABEL = { roomAdd: 'Nueva zona de fotos', roomDel: 'Zona de fotos quitada', create: 'Nuevo trabajo', patch: 'Cambio en el trabajo', photo: 'Foto', photoDel: 'Foto borrada', photoX: 'Foto extra', photoXDel: 'Foto extra borrada', matAdd: 'Nuevo material', matEdit: 'Cambio de material', matDel: 'Material quitado', problem: 'Problema comunicado' };
+export const OP_LABEL = { roomAdd: 'Nueva zona de fotos', roomDel: 'Zona de fotos quitada', roomRen: 'Zona de fotos renombrada', create: 'Nuevo trabajo', patch: 'Cambio en el trabajo', photo: 'Foto', photoDel: 'Foto borrada', photoX: 'Foto extra', photoXDel: 'Foto extra borrada', matAdd: 'Nuevo material', matEdit: 'Cambio de material', matDel: 'Material quitado', problem: 'Problema comunicado' };
 
 // ── drafts (forms in progress) and the employee list, per user, wiped on sign-out ──
 export const getDraft = (key) => kvGet(`draft:${me.id}:${key}`);
