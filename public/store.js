@@ -11,18 +11,34 @@
 import { PHOTO_ROOMS, MATERIAL_AREAS, newJob, roomsOf, slug, dropMain } from './jobs.mjs?v=__V__';
 
 // ── IndexedDB: kv (job cache per user), outbox (changes), blobs (photos not yet uploaded) ──
-const db = new Promise((resolve, reject) => {
-  const req = indexedDB.open('lcc-reports', 1);
+// iPhone Lockdown Mode (and some private windows) can leave IndexedDB missing or never answering: the app then
+// keeps everything in memory for this visit (works online; unsent changes are lost if the app is closed).
+const db = new Promise((resolve) => {
+  setTimeout(() => resolve(null), 4000);
+  let req;
+  try { req = indexedDB.open('lcc-reports', 1); } catch { return resolve(null); }
   req.onupgradeneeded = () => {
     req.result.createObjectStore('kv');
     req.result.createObjectStore('outbox', { keyPath: 'id' });
     req.result.createObjectStore('blobs');
   };
   req.onsuccess = () => resolve(req.result);
-  req.onerror = () => reject(req.error);
+  req.onerror = () => resolve(null);
 });
+const memory = { kv: new Map(), outbox: new Map(), blobs: new Map() };
+const inRange = (k, r) => (typeof r === 'object' && r ? k >= r.lower && k <= r.upper : k === r);
+const range = (lower, upper) => (globalThis.IDBKeyRange ? IDBKeyRange.bound(lower, upper) : { lower, upper });
+// the few object-store calls this file makes, on a Map (results come back as .result, like IndexedDB requests)
+const memStore = (m, keyPath) => ({
+  get: (k) => ({ result: m.get(k) }),
+  getAll: () => ({ result: [...m.values()] }),
+  put: (v, k) => { m.set(keyPath ? v[keyPath] : k, v); return {}; },
+  delete: (r) => { for (const k of [...m.keys()]) if (inRange(k, r)) m.delete(k); return {}; },
+});
+export const deviceStorage = () => db.then((d) => !!d);
 async function tx(name, mode, fn) {
   const d = await db;
+  if (!d) return fn(memStore(memory[name], name === 'outbox' ? 'id' : null))?.result;
   return new Promise((resolve, reject) => {
     const t = d.transaction(name, mode);
     const r = fn(t.objectStore(name));
@@ -76,9 +92,9 @@ export async function reset() {
   await tx('outbox', 'readwrite', (s) => ops.forEach((o) => s.delete(o.id)));
   await tx('kv', 'readwrite', (s) => {
     for (const k of ['jobs', 'synced', 'alias', 'users']) s.delete(`${k}:${uid}`);
-    s.delete(IDBKeyRange.bound(`draft:${uid}:`, `draft:${uid}:\uffff`));
+    s.delete(range(`draft:${uid}:`, `draft:${uid}:\uffff`));
   });
-  await tx('blobs', 'readwrite', (s) => s.delete(IDBKeyRange.bound(`draft:${uid}:`, `draft:${uid}:\uffff`)));
+  await tx('blobs', 'readwrite', (s) => s.delete(range(`draft:${uid}:`, `draft:${uid}:\uffff`)));
   alias.clear();
   blobUrls.forEach((u) => URL.revokeObjectURL(u)); blobUrls.clear();
   me = null; ops = []; server.clear(); sync.loaded = false;

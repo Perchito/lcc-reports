@@ -38,7 +38,7 @@ async function logout() {
   await disablePush(); // this phone stops getting this person's notifications
   await store.api('/api/logout', { method: 'POST' }).catch(() => {});
   await store.reset();
-  caches.delete('lcc-photos').catch(() => {});
+  globalThis.caches?.delete('lcc-photos').catch(() => {});
   me = null; safeSet('lcc-me', null);
   history.replaceState(null, '', '#/home');
   loginScreen();
@@ -368,5 +368,5 @@ window.addEventListener('lcc:job-id', ({ detail: { tempId, realId } }) => {
   rerender();
 });
 navigator.serviceWorker?.addEventListener('message', (e) => { if (e.data?.go) location.href = e.data.go; }); // tapped a notification
-if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
+navigator.serviceWorker?.register('/sw.js').catch(() => {}); // missing in iPhone Lockdown Mode
 boot();

@@ -4,7 +4,7 @@ import { api } from './store.js?v=__V__';
 
 const ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
 const standalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone;
-const supported = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+const supported = () => !!navigator.serviceWorker && 'PushManager' in window && 'Notification' in window;
 
 /** 'on' | 'off' | 'denied' | 'install' (iPhone: add to Home Screen first) | 'unsupported' */
 export async function pushState() {
