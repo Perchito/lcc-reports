@@ -183,28 +183,43 @@ export async function hydrate(root) {
 // ── photos: native camera / library, then resized for the report ──
 // 1920px long edge at JPEG 0.82 keeps detail for evidence and the PDF at ~0.4–0.8 MB.
 // `multiple` (library only): resolves to an array of blobs, possibly empty
+// The input is put in the page until the photo comes back: an iPhone can throw away a detached file input while
+// the camera is open, so the first photo of a visit was lost and only a second try worked.
+let picking = null;
 export function pickPhoto({ camera = true, multiple = false } = {}) {
   return new Promise((resolve) => {
-    const input = Object.assign(document.createElement('input'), { type: 'file', accept: 'image/*', multiple: multiple && !camera });
+    picking?.remove();
+    const input = picking = Object.assign(document.createElement('input'), { type: 'file', accept: 'image/*', multiple: multiple && !camera });
+    input.style.cssText = 'position:fixed;left:-9999px;width:1px;height:1px;opacity:0'; // off screen, not display:none (some iPhones won't open those from code)
     if (camera) input.setAttribute('capture', 'environment');
+    const done = (v) => { input.remove(); if (picking === input) picking = null; resolve(v); };
     input.addEventListener('change', async () => {
       const out = [];
       for (const file of input.files) {
         try { out.push(await compress(file)); } catch { toast('No se pudo leer una foto — inténtalo de nuevo', 'bad'); }
       }
-      resolve(multiple ? out : out[0] || null);
+      done(multiple ? out : out[0] || null);
     }, { once: true });
-    input.addEventListener('cancel', () => resolve(multiple ? [] : null), { once: true });
+    input.addEventListener('cancel', () => done(multiple ? [] : null), { once: true });
+    document.body.append(input);
     input.click();
   });
 }
+// photo -> JPEG, longest side 1920px. createImageBitmap first; an <img> decode if this phone's browser can't
 async function compress(file) {
-  const img = await createImageBitmap(file, { imageOrientation: 'from-image' });
-  const scale = Math.min(1, 1920 / Math.max(img.width, img.height));
-  const canvas = Object.assign(document.createElement('canvas'), { width: Math.round(img.width * scale), height: Math.round(img.height * scale) });
-  canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
-  img.close?.();
-  return new Promise((ok, fail) => canvas.toBlob((b) => (b ? ok(b) : fail(new Error('encode'))), 'image/jpeg', 0.82));
+  let img, url;
+  try { img = await createImageBitmap(file, { imageOrientation: 'from-image' }); } catch {
+    url = URL.createObjectURL(file);
+    img = new Image(); img.src = url;
+    await img.decode();
+  }
+  try {
+    const w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
+    const scale = Math.min(1, 1920 / Math.max(w, h));
+    const canvas = Object.assign(document.createElement('canvas'), { width: Math.round(w * scale), height: Math.round(h * scale) });
+    canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+    return await new Promise((ok, fail) => canvas.toBlob((b) => (b ? ok(b) : fail(new Error('encode'))), 'image/jpeg', 0.82));
+  } finally { img.close?.(); if (url) URL.revokeObjectURL(url); }
 }
 
 // ── logo (official LCC artwork, white background) ───────
