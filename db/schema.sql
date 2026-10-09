@@ -12,6 +12,9 @@ create table if not exists users (
 );
 create unique index if not exists users_email_idx on users (lower(email));
 
+-- personal login link (scripts/login-link.mjs): sha256 of the secret code in /l/<code>
+alter table users add column if not exists login_link_hash text;
+
 create table if not exists sessions (
   token_hash text primary key,  -- sha256 of the cookie value
   user_id    uuid not null references users(id) on delete cascade,

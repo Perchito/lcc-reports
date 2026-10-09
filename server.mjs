@@ -59,12 +59,28 @@ app.post('/api/login', async (req, res) => {
     return res.status(401).json({ error: 'Correo o contraseña incorrectos.' });
   }
   loginOk(ip);
+  await startSession(req, res, rows[0].id);
+  res.json({ ok: true });
+});
+
+async function startSession(req, res, userId, days = SESSION_DAYS) {
   const token = newToken();
   await pool.query('insert into sessions (token_hash, user_id, expires_at) values ($1, $2, now() + $3::interval)',
-    [tokenHash(token), rows[0].id, `${SESSION_DAYS} days`]);
+    [tokenHash(token), userId, `${days} days`]);
   await pool.query('delete from sessions where expires_at < now()');
-  res.cookie(COOKIE, token, { httpOnly: true, sameSite: 'lax', secure: req.secure, maxAge: SESSION_DAYS * 86400_000 });
-  res.json({ ok: true });
+  res.cookie(COOKIE, token, { httpOnly: true, sameSite: 'lax', secure: req.secure, maxAge: days * 86400_000 });
+}
+
+// Personal login link (no password to type): /l/<code>, made or revoked with scripts/login-link.mjs.
+// Only the sha256 of the code is stored; opening it logs that person in for a year.
+app.get('/l/:code', async (req, res) => {
+  const ip = clientIp(req);
+  if (loginBlocked(ip)) return res.status(429).send('Demasiados intentos — vuelve a intentarlo en 15 minutos.');
+  const { rows } = await pool.query('select id from users where login_link_hash = $1 and active', [tokenHash(req.params.code)]);
+  if (!rows[0]) { loginFailed(ip); console.warn(`[auth] bad login link from ${ip}`); return res.redirect('/'); }
+  loginOk(ip);
+  await startSession(req, res, rows[0].id, 365);
+  res.redirect('/');
 });
 
 app.post('/api/logout', async (req, res) => {
