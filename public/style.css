@@ -606,3 +606,8 @@ dialog.viewer::backdrop { background: #000; }
 .spot-chip .icon-btn { width: 40px; height: 40px; color: var(--muted); }
 .ren-spot { gap: 8px; }
 .ren-spot input { flex: 1; min-width: 0; }
+
+/* "new version" bar (app.js, lcc:new-version) */
+.update-bar { position: fixed; left: 12px; right: 12px; top: calc(env(safe-area-inset-top) + 8px); z-index: 120; display: flex; align-items: center; gap: 10px; padding: 10px 10px 10px 16px; border-radius: var(--radius); background: var(--brand-ink); color: #fff; box-shadow: 0 8px 24px #10212740; font-weight: 600; font-size: 15px; }
+.update-bar .btn { margin-left: auto; flex: none; background: #fff; color: var(--brand-ink); border: 0; }
+@media (min-width: 900px) { .update-bar { left: auto; width: 420px; right: 24px; } }

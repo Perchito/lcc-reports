@@ -369,4 +369,18 @@ window.addEventListener('lcc:job-id', ({ detail: { tempId, realId } }) => {
 });
 navigator.serviceWorker?.addEventListener('message', (e) => { if (e.data?.go) location.href = e.data.go; }); // tapped a notification
 navigator.serviceWorker?.register('/sw.js').catch(() => {}); // missing in iPhone Lockdown Mode
+
+// a newer version has been deployed: offer a reload (like FC Staff Hub). Unsent changes stay safe in IndexedDB;
+// without it (Lockdown Mode) they only live in memory, so wait until they have gone.
+window.addEventListener('lcc:new-version', () => {
+  if (document.querySelector('.update-bar')) return;
+  const bar = document.createElement('div');
+  bar.className = 'update-bar'; bar.setAttribute('role', 'status');
+  bar.innerHTML = `${icon('system_update')}<span>Hay una versión nueva de la app.</span><button class="btn btn-sm">Actualizar</button>`;
+  bar.querySelector('button').onclick = async () => {
+    if (store.pendingCount() && !(await store.deviceStorage())) return toast('Espera a que se suban los cambios pendientes y vuelve a tocar Actualizar.');
+    location.reload();
+  };
+  document.body.append(bar);
+});
 boot();

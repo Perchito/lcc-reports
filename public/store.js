@@ -111,6 +111,8 @@ export async function api(path, { method = 'GET', body, raw } = {}) {
   let res;
   try { res = await fetch(path, init); } catch { setReachable(false); throw new Offline(); }
   setReachable(true);
+  const v = res.headers.get('x-app-version');
+  if (v && v !== '__V__') window.dispatchEvent(new Event('lcc:new-version')); // a newer deploy than this copy
   const data = await res.json().catch(() => ({}));
   if (res.status === 401 && path !== '/api/login') { window.dispatchEvent(new Event('lcc:logged-out')); throw new Error('Vuelve a iniciar sesión'); }
   if (!res.ok) throw Object.assign(new Error(data.error || `Algo salió mal (${res.status})`), { status: res.status });

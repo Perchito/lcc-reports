@@ -24,6 +24,8 @@ const storage = homeStorage({
 const app = express();
 app.set('trust proxy', 'loopback'); // cloudflared on localhost sets X-Forwarded-Proto
 app.use(express.json({ limit: '1mb' }));
+// every API reply says which deploy is running, so an open copy of the app can offer "Actualizar" (VERSION is set below, per start)
+app.use('/api', (req, res, next) => { res.set('X-App-Version', VERSION); next(); });
 
 const COOKIE = 'lcc_session';
 const clientIp = (req) => String(req.headers['cf-connecting-ip'] || req.ip);
