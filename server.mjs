@@ -389,15 +389,16 @@ app.get('/api/jobs/:id/files/:file', requireUser(), async (req, res) => {
     .send(Buffer.from(await r.arrayBuffer()));
 });
 
-// the report PDF with every photo it shows
-async function jobPdf(job) {
+// the report PDF with every photo it shows; opts.materials / opts.problems = false leave those sections out
+async function jobPdf(job, opts = {}) {
   const images = {}; // photo path -> Buffer
-  const paths = [...roomsOf(job).flatMap((r) => ['before', 'after'].flatMap((t) => photosOf(job, r, t))).map((p) => p.path), ...(job.problems || []).map((p) => p.photoPath).filter(Boolean)];
+  const paths = [...roomsOf(job).flatMap((r) => ['before', 'after'].flatMap((t) => photosOf(job, r, t))).map((p) => p.path),
+    ...(opts.problems === false ? [] : (job.problems || []).map((p) => p.photoPath).filter(Boolean))];
   await Promise.all(paths.map(async (path) => {
     const got = await storage.get(keyOf(path)).catch(() => null);
     if (got?.ok) images[path] = Buffer.from(await got.arrayBuffer());
   }));
-  return reportPdf(job, images);
+  return reportPdf(job, images, opts);
 }
 
 app.get('/api/jobs/:id/pdf', requireUser(), async (req, res) => {
@@ -405,7 +406,7 @@ app.get('/api/jobs/:id/pdf', requireUser(), async (req, res) => {
   res.set({
     'content-type': 'application/pdf', 'cache-control': 'private, no-store',
     'content-disposition': `${req.query.download ? 'attachment' : 'inline'}; filename="${pdfFilename(job)}"`,
-  }).send(await jobPdf(job));
+  }).send(await jobPdf(job, { materials: req.query.materials !== '0', problems: req.query.problems !== '0' }));
 });
 
 // every submitted report goes to the office by email, PDF attached (REPORT_EMAIL_TO, default Daniel)

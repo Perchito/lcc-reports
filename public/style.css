@@ -194,7 +194,7 @@ a.card:active, button.card:active { transform: scale(.985); }
 .list-row { display: flex; align-items: center; gap: 14px; width: 100%; min-height: 56px; padding: 10px 16px; background: none; border: 0; text-align: left; color: var(--ink); text-decoration: none; font-size: 16px; }
 .list-row + .list-row { border-top: 1px solid var(--line-2); }
 .list-row > .i:first-child { color: var(--brand-strong); }
-.list-row > span:not(.i):not(.row-ic):not(.row-meta):not(.spot-no) { flex: 1; }
+.list-row > span:not(.i):not(.row-ic):not(.row-meta):not(.spot-no):not(.switch) { flex: 1; }
 .list-row:active:not(.static) { background: var(--line-2); }
 .list-row .chev { color: #a9b6ba; }
 .row-meta { color: var(--muted); font-size: 14px; }
@@ -611,3 +611,13 @@ dialog.viewer::backdrop { background: #000; }
 .update-bar { position: fixed; left: 12px; right: 12px; top: calc(env(safe-area-inset-top) + 8px); z-index: 120; display: flex; align-items: center; gap: 10px; padding: 10px 10px 10px 16px; border-radius: var(--radius); background: var(--brand-ink); color: #fff; box-shadow: 0 8px 24px #10212740; font-weight: 600; font-size: 15px; }
 .update-bar .btn { margin-left: auto; flex: none; background: #fff; color: var(--brand-ink); border: 0; }
 @media (min-width: 900px) { .update-bar { left: auto; width: 420px; right: 24px; } }
+
+/* on/off switch rows (PDF options sheet) */
+.switch-row { display: flex; align-items: center; gap: 12px; cursor: pointer; }
+.switch-row .grow { flex: 1; min-width: 0; }
+.switch-row input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.switch { display: inline-block; flex: none; position: relative; width: 51px; height: 31px; border-radius: 999px; background: #d5dbdd; transition: background .2s; }
+.switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 27px; height: 27px; border-radius: 50%; background: #fff; box-shadow: 0 2px 4px #0003; transition: transform .2s; }
+.switch-row input:checked + .switch { background: var(--brand); }
+.switch-row input:checked + .switch::after { transform: translateX(20px); }
+.switch-row input:focus-visible + .switch { outline: 2px solid var(--brand); outline-offset: 2px; }
