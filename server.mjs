@@ -171,7 +171,6 @@ async function insertNumbered(prefix, make) {
     const job = make(`${prefix}-${year}-${String(n).padStart(5, '0')}`);
     try {
       await pool.query('insert into jobs (id, data) values ($1, $2)', [job.id, job]);
-      englishSoon(job.id);
       if (job.assignedTo) notify(pool, { emails: [job.assignedTo] }, { title: 'Nuevo trabajo asignado', body: address(job), url: `/#/jobs/${job.id}`, tag: job.id });
       return job;
     } catch (e) { if (e.code !== '23505') throw e; } // two at once: take the next number
@@ -184,7 +183,6 @@ async function insertNumbered(prefix, make) {
 async function update(req, sql, params) {
   await loadJob(req); // access check
   const { rows } = await pool.query(`update jobs set data = ${sql} where id = $1 returning data`, [req.params.id, ...params]);
-  englishSoon(req.params.id);
   return rows[0].data;
 }
 
@@ -208,15 +206,14 @@ app.patch('/api/jobs/:id', requireUser(), async (req, res) => {
     notify(pool, { role: 'admin', except: req.user.id }, { ...where, title: 'Informe enviado', body: `${address(job)} — de ${req.user.name}`, url: `/#/reports/${job.id}` });
     emailReport(job, req.user.name).catch((e) => console.error(`[email] report ${job.id} failed:`, e.message));
   }
+  const finished = (j) => j.submittedAt || [STATUS.completed, STATUS.reportGenerated, STATUS.adminReviewed].includes(j.status);
+  if (finished(job) && !finished(before) && !(job.submittedAt && !before.submittedAt)) fillEnglish(job.id).catch((e) => console.warn('[translate]', job.id, e.message));
   if (job.status === STATUS.adminReviewed && before.status !== STATUS.adminReviewed && job.assignedTo) notify(pool, { emails: [job.assignedTo], except: req.user.id }, { ...where, title: 'Informe revisado', url: `/#/reports/${job.id}` });
 });
 
-// ── English copies of what workers write (lib/translate.mjs): filled in the background a moment after each save ──
-const englishTimers = new Map();
-function englishSoon(id) {
-  clearTimeout(englishTimers.get(id));
-  englishTimers.set(id, setTimeout(() => { englishTimers.delete(id); fillEnglish(id).catch((e) => console.warn('[translate]', id, e.message)); }, 1500));
-}
+// ── English copies of what workers write (lib/translate.mjs) ──
+// Made once, at the end (Luis): when a PDF is generated (download, share, the emailed report) and when the job is
+// completed — never on every save. Only texts without an up-to-date copy go to the model, all in one call.
 async function fillEnglish(id) {
   const { rows } = await pool.query('select data from jobs where id = $1', [id]);
   if (!rows[0]) return;
@@ -238,11 +235,6 @@ async function fillEnglish(id) {
   } catch (e) { await client.query('rollback').catch(() => {}); throw e; }
   finally { client.release(); }
 }
-// on start: give older jobs their English copies, one at a time
-setTimeout(async () => {
-  const { rows } = await pool.query('select id from jobs order by created_at desc');
-  for (const { id } of rows) await fillEnglish(id).catch((e) => console.warn('[translate]', id, e.message));
-}, 30_000);
 // the app shows the client an English preview while a worker writes (signing in person)
 // { text } -> { en } or, several at once (one model call), { texts: [] } -> { en: [] } (null where it failed)
 app.post('/api/translate', requireUser(), async (req, res) => {
@@ -269,7 +261,6 @@ async function withJob(req, fn) {
     fn(data);
     await client.query('update jobs set data = $2 where id = $1', [req.params.id, data]);
     await client.query('commit');
-    englishSoon(req.params.id);
     return data;
   } catch (e) { await client.query('rollback').catch(() => {}); throw e; }
   finally { client.release(); }
@@ -629,6 +620,11 @@ app.get('/api/jobs/:id/files/:file', requireUser(), async (req, res) => {
 
 // the report PDF with every photo it shows; opts.materials / opts.problems / opts.changes = false leave those sections out
 async function jobPdf(job, opts = {}) {
+  // last step before the PDF: English copies of anything still untranslated (no model call if there is none)
+  if (textsOf(job).some(([o, f]) => needsEnglish(o, f))) {
+    await fillEnglish(job.id).catch((e) => console.warn('[translate]', job.id, e.message));
+    job = (await pool.query('select data from jobs where id = $1', [job.id])).rows[0]?.data || job;
+  }
   const images = {}; // photo path -> Buffer
   const paths = [...roomsOf(job).flatMap((r) => ['before', 'after'].flatMap((t) => photosOf(job, r, t))).map((p) => p.path),
     ...(opts.problems === false ? [] : (job.problems || []).map((p) => p.photoPath).filter(Boolean)), ...(job.condition || []).map((p) => p.path)];

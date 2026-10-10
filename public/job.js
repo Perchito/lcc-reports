@@ -552,15 +552,18 @@ async function newChange(id) {
         how = el.value; save();
         $('#here', v).hidden = how !== 'here'; $('#linkinfo', v).hidden = how !== 'link';
         $('#sign', f).innerHTML = how === 'link' ? `${icon('send_to_mobile')} Crear y enviar enlace` : `${icon('gesture')} Firmar y guardar`;
-        if (how === 'here') sig.fit(); // the pad had no size while hidden
+        if (how === 'here') { sig.fit(); if (!shown) preview(); } // the pad had no size while hidden
       });
-      on(v, '#desc', 'input', () => { save(); preview(); }); on(v, '#cname', 'input', save);
-      // the client reads English: translate what the worker wrote (needs signal; without it the PDF gets it later)
+      // the client reads English: one translation once the worker has finished writing (leaves the box), not per keystroke.
+      // Needs signal; without it the client sees what was written and the PDF gets the English later.
       let shown = null, timer;
+      on(v, '#desc', 'input', () => { save(); shown = null; $('#enp', v).hidden = true; });
+      on(v, '#desc', 'change', () => preview());
+      on(v, '#cname', 'input', save);
       const preview = () => {
         clearTimeout(timer); shown = null;
         const text = $('#desc', v).value.trim(), box = $('#enp', v);
-        if (!text) { box.hidden = true; return; }
+        if (!text || how !== 'here') { box.hidden = true; return; }
         timer = setTimeout(async () => {
           try {
             const { en: english } = await store.api('/api/translate', { method: 'POST', body: { text } });
@@ -568,7 +571,7 @@ async function newChange(id) {
             shown = { text, english };
             $('p', box).textContent = english; box.hidden = false;
           } catch { box.hidden = true; }
-        }, 900);
+        }, 50);
       };
       preview();
       sig = signaturePad($('#sig', v));
