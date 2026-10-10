@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex">
 <meta name="theme-color" content="#ffffff">
-<title>Sign change · LCC Bathrooms &amp; Services</title>
+<title>Please sign · LCC Bathrooms &amp; Services</title>
 <link rel="icon" href="/img/icon-192.png">
 <style>
   :root { --ink: #0f1f24; --muted: #5b6b70; --line: #dfe6e8; --brand: #00838f; --soft: #f4f8f9; --red: #b42318; --green: #067647; }
@@ -33,28 +33,45 @@
   .err { color: var(--red); font-weight: 600; }
   .done { text-align: center; } .done .tick { font-size: 48px; color: var(--green); }
   .sig { max-width: 100%; max-height: 120px; }
+  .photos { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 16px 0; }
+  .photos figure { margin: 0; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+  .photos img { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; background: var(--soft); cursor: zoom-in; }
+  .photos figcaption { padding: 6px 8px; font-size: 13px; }
+  .photos figcaption b { display: block; font-size: 12px; letter-spacing: .04em; text-transform: uppercase; }
+  dialog { border: 0; padding: 0; background: #000; max-width: 100vw; max-height: 100vh; }
+  dialog img { display: block; max-width: 100vw; max-height: 100vh; }
 </style>
 </head>
 <body>
 <main>
-  <header><img src="/img/logo.png" alt="LCC Bathrooms & Services Ltd logo"><div><b>LCC Bathrooms &amp; Services Ltd</b><small>Change to agreed work</small></div></header>
+  <header><img src="/img/logo.png" alt="LCC Bathrooms & Services Ltd logo"><div><b>LCC Bathrooms &amp; Services Ltd</b><small id="sub">Please review and sign</small></div></header>
   <div id="app"><p class="muted">Loading…</p></div>
 </main>
 <script>
 const code = location.pathname.split('/').pop(), app = document.getElementById('app');
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const when = (d) => new Date(d).toLocaleString('en-GB', { timeZone: 'Europe/London', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+// a change to the work, or the photos of the property's condition
+const what = (c) => c.kind === 'condition' ? photoGrid(c) : changeCard(c);
+const photoGrid = (c) => `<p class="muted">${c.photos.length} photo${c.photos.length === 1 ? '' : 's'} taken before any work started. Tap a photo to see it bigger.</p>
+  <div class="photos">${c.photos.map((p, i) => `<figure><img src="${esc(p.url)}" alt="Photo ${i + 1}" loading="lazy" data-big>
+    <figcaption>${p.area ? `<b>${esc(p.area)}</b>` : ''}${esc(p.note || '')}</figcaption></figure>`).join('')}</div>`;
+document.addEventListener('click', (e) => {
+  if (!e.target.matches('[data-big]')) return;
+  const d = document.createElement('dialog'); d.innerHTML = `<img src="${esc(e.target.src)}" alt="">`;
+  d.onclick = () => d.remove(); document.body.append(d); d.showModal();
+});
 const changeCard = (c) => `<div class="card"><span class="pill ${c.type === 'Remove' ? 'rm' : 'add'}">${c.type === 'Remove' ? 'REMOVE FROM AGREED WORK' : 'ADD TO AGREED WORK'}</span>
   <p class="desc">${esc(c.description)}</p></div>`;
 
 function signed(c) {
-  app.innerHTML = `<div class="done"><div class="tick">✓</div><h1>Signed — thank you</h1><p class="muted">${esc(c.address)}</p></div>${changeCard(c)}
+  app.innerHTML = `<div class="done"><div class="tick">✓</div><h1>Signed — thank you</h1><p class="muted">${esc(c.address)}</p></div>${what(c)}
     <div class="card"><p class="decl">${esc(c.declaration)}</p><img class="sig" src="${esc(c.signature)}" alt="Signature"><p><b>${esc(c.customerName)}</b><br><span class="muted">Signed ${when(c.signedAt)}</span></p></div>
     <p class="muted">You can close this page. LCC has a copy.</p>`;
 }
 
 function form(c) {
-  app.innerHTML = `<h1>Please review and sign</h1><p class="muted">${esc(c.address)} · ${esc(c.jobId)}</p>${changeCard(c)}
+  app.innerHTML = `<h1>${c.kind === 'condition' ? 'Condition of your property' : 'Please review and sign'}</h1><p class="muted">${[c.address, c.jobId].filter(Boolean).map(esc).join(' · ')}</p>${what(c)}
     <p class="decl">${esc(c.declaration)}</p>
     <label for="name">Your full name</label><input id="name" autocomplete="name" value="${esc(c.customerName)}">
     <div class="row"><label for="pad">Sign below with your finger</label><button type="button" class="link" id="clear">Clear</button></div>
@@ -97,6 +114,7 @@ function form(c) {
 fetch(`/api/sign/${encodeURIComponent(code)}`).then(async (res) => {
   const c = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(c.error || 'This link is not valid');
+  document.getElementById('sub').textContent = c.kind === 'condition' ? 'Property condition before work' : 'Change to agreed work';
   c.signed ? signed(c) : form(c);
 }).catch((e) => { app.innerHTML = `<h1>Link not available</h1><p class="muted">${esc(e.message === 'Failed to fetch' ? 'No connection — please try again.' : e.message)}</p><p class="muted">If you think this is a mistake, contact LCC Bathrooms &amp; Services.</p>`; });
 </script>

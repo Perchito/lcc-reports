@@ -89,7 +89,7 @@ function employeeHome(me) {
       <h3 class="section-title">Accesos rápidos</h3>
       <div class="quick">
         <a href="#/jobs">${icon('work_outline')}<span>Ver trabajos</span></a>
-        <a href="#/reports">${icon('description')}<span>Informes</span></a>
+        <a href="#/quotes/new">${icon('request_quote')}<span>Nuevo presupuesto</span></a>
         <a href="#/report-problem">${icon('report_problem')}<span>Comunicar problema</span></a>
         <a href="#/notifications">${icon('notifications')}<span>Avisos</span>${unread ? `<b class="badge">${unread}</b>` : ''}</a>
       </div>

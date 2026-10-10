@@ -6,7 +6,7 @@ import {
   loginBlocked, loginFailed, loginOk,
 } from './lib/auth.mjs';
 import { homeStorage } from './lib/home-storage.mjs';
-import { MATERIAL_AREAS, MAX_ROOMS, STATUS, tr, newJob, cleanPatch, materialItem, problemItem, changeItem, signature, isSigned, CODE_RE, CHANGE_DECLARATION, slug, roomsOf, findRoom, cleanRooms, photosOf, dropMain, MAX_EXTRA } from './lib/jobs.mjs';
+import { MATERIAL_AREAS, MAX_ROOMS, STATUS, tr, newJob, cleanPatch, materialItem, problemItem, changeItem, signature, isSigned, CODE_RE, newCode, CHANGE_DECLARATION, slug, roomsOf, findRoom, isQuote, newQuote, cleanQuotePatch, conditionMeta, conditionLocked, MAX_CONDITION, CONDITION_DECLARATION, cleanRooms, photosOf, dropMain, MAX_EXTRA } from './lib/jobs.mjs';
 import { reportPdf, pdfFilename } from './lib/pdf.mjs';
 import { sendEmail, emailConfigured } from './lib/mailer.mjs';
 import { pushRoutes, notify } from './lib/push.mjs';
@@ -133,8 +133,8 @@ app.patch('/api/users/:id', admin, async (req, res) => {
 });
 
 // ── jobs ────────────────────────────────────────────────
-// admin sees every job; an employee only the jobs assigned to their email
-const visible = (i) => `($${i}::text = 'admin' or lower(data->>'assignedTo') = lower($${i + 1}))`;
+// admin sees every job; an employee only the jobs assigned to their email, plus the quotes they made
+const visible = (i) => `($${i}::text = 'admin' or lower(data->>'assignedTo') = lower($${i + 1}) or (data->>'kind' = 'quote' and lower(data->>'createdBy') = lower($${i + 1})))`;
 const who = (u) => [u.role, u.email];
 
 app.get('/api/jobs', requireUser(), async (req, res) => {
@@ -149,26 +149,31 @@ async function loadJob(req) {
 }
 app.get('/api/jobs/:id', requireUser(), async (req, res) => res.json(await loadJob(req)));
 
-// unique Job ID per year: LCC-2026-00001, LCC-2026-00002, …
-app.post('/api/jobs', admin, async (req, res) => {
+// unique Job ID per year: LCC-2026-00001, LCC-2026-00002, … (quotes: Q-2026-00001). Anyone can make a quote; jobs are for admins.
+app.post('/api/jobs', requireUser(), async (req, res) => {
+  const quote = req.body?.kind === 'quote';
+  if (!quote && req.user.role !== 'admin') throw bad(403, 'No tienes permiso');
   const clientId = req.body?.clientId;
   if (clientId) { // created offline and sent again: hand back the job the first send made
     const { rows } = await pool.query(`select data from jobs where data->>'clientId' = $1`, [String(clientId)]);
     if (rows[0]) return res.json(rows[0].data);
   }
+  res.json(await insertNumbered(quote ? 'Q' : 'LCC', (id) => (quote ? newQuote : newJob)(id, req.body || {}, req.user.email)));
+});
+async function insertNumbered(prefix, make) {
   const year = new Date().getFullYear();
   for (let attempt = 0; attempt < 5; attempt++) {
     const { rows: [{ n }] } = await pool.query(
-      `select coalesce(max(substring(id from '\\d+$')::int), 0) + 1 as n from jobs where id like $1`, [`LCC-${year}-%`]);
-    const job = newJob(`LCC-${year}-${String(n).padStart(5, '0')}`, req.body || {}, req.user.email);
+      `select coalesce(max(substring(id from '\\d+$')::int), 0) + 1 as n from jobs where id like $1`, [`${prefix}-${year}-%`]);
+    const job = make(`${prefix}-${year}-${String(n).padStart(5, '0')}`);
     try {
       await pool.query('insert into jobs (id, data) values ($1, $2)', [job.id, job]);
       if (job.assignedTo) notify(pool, { emails: [job.assignedTo] }, { title: 'Nuevo trabajo asignado', body: address(job), url: `/#/jobs/${job.id}`, tag: job.id });
-      return res.json(job);
-    } catch (e) { if (e.code !== '23505') throw e; } // two admins at once: take the next number
+      return job;
+    } catch (e) { if (e.code !== '23505') throw e; } // two at once: take the next number
   }
-  throw bad(409, 'No se pudo asignar un número de trabajo, inténtalo de nuevo');
-});
+  throw bad(409, 'No se pudo asignar un número, inténtalo de nuevo');
+}
 
 // every write is a targeted change on the server's copy, so two people working
 // on the same job never overwrite each other's photos or materials
@@ -179,6 +184,11 @@ async function update(req, sql, params) {
 }
 
 app.patch('/api/jobs/:id', requireUser(), async (req, res) => {
+  const current = await loadJob(req);
+  if (isQuote(current)) {
+    if (current.convertedTo) throw bad(409, `Este presupuesto ya es el trabajo ${current.convertedTo}`);
+    return res.json(await update(req, 'data || $2::jsonb', [cleanQuotePatch(req.body)]));
+  }
   const patch = cleanPatch(req.body, req.user.role);
   const now = new Date().toISOString();
   if (patch.status === STATUS.adminReviewed) patch.reviewedAt = now;
@@ -396,39 +406,144 @@ app.delete('/api/jobs/:id/changes/:cid', requireUser(), async (req, res) => {
   }));
 });
 
+// ── condition photos (quotes, and jobs made from them): photo + where + note, locked once the client signs ──
+const conditionOpen = (data) => { if (conditionLocked(data)) throw bad(409, 'El cliente ya firmó el estado de la vivienda — no se pueden cambiar las fotos'); };
+app.put('/api/jobs/:id/condition/:xid', requireUser(), jpeg, async (req, res) => {
+  if (!isImage(req.body)) throw bad(400, 'Envía una foto JPEG o PNG');
+  conditionOpen(await loadJob(req));
+  const id = xid(req), file = `cond_${id}.jpg`;
+  await storage.put(`jobs/${req.params.id}/${file}`, req.body, req.headers['content-type']);
+  res.json(await withJob(req, (data) => {
+    conditionOpen(data);
+    const list = (data.condition ??= []), i = list.findIndex((x) => x.id === id);
+    const photo = { id, path: fileUrl(req.params.id, file), ...conditionMeta(req.query), by: req.user.email, at: new Date().toISOString() };
+    if (i >= 0) list[i] = { ...list[i], path: photo.path }; // resend: keep what was written since
+    else if (list.length >= MAX_CONDITION) throw bad(400, `Como máximo ${MAX_CONDITION} fotos`);
+    else list.push(photo);
+  }));
+});
+app.patch('/api/jobs/:id/condition/:xid', requireUser(), async (req, res) => {
+  const id = xid(req);
+  res.json(await withJob(req, (data) => {
+    conditionOpen(data);
+    const p = (data.condition || []).find((x) => x.id === id);
+    if (p) Object.assign(p, conditionMeta({ area: p.area, note: p.note, ...req.body }));
+  }));
+});
+app.delete('/api/jobs/:id/condition/:xid', requireUser(), async (req, res) => {
+  const id = xid(req);
+  let old;
+  res.json(await withJob(req, (data) => {
+    const p = (data.condition || []).find((x) => x.id === id);
+    if (!p) return;
+    conditionOpen(data);
+    old = keyOf(p.path);
+    data.condition = data.condition.filter((x) => x !== p);
+  }));
+  if (old) storage.del(old).catch(() => {});
+});
+// the client signs the condition photos: here ({customerName, signature}) or later by link ({remote, signCode})
+app.post('/api/jobs/:id/condition-sign', requireUser(), async (req, res) => {
+  const b = req.body || {};
+  const next = b.remote
+    ? { customerName: String(b.customerName || '').trim().slice(0, 120), signature: null, signedAt: null, signCode: CODE_RE.test(b.signCode || '') ? b.signCode : newCode(), sentBy: req.user.email, sentAt: new Date().toISOString() }
+    : { ...signature(b), signedAt: new Date().toISOString(), signedVia: 'device', witnessedBy: req.user.email };
+  let fresh = false;
+  const job = await withJob(req, (data) => {
+    if (conditionLocked(data)) return; // already signed (or a resend)
+    if (!data.condition?.length) throw bad(400, 'Haz al menos una foto antes de firmar');
+    if (!next.signedAt && data.conditionSign?.signCode) return; // link already made: keep it, so links sent earlier still work
+    data.conditionSign = { ...next, ...(next.signedAt ? { photoIds: data.condition.map((p) => p.id) } : {}) };
+    fresh = !!next.signedAt;
+  });
+  res.json(job);
+  if (fresh) notify(pool, { role: 'admin', except: req.user.id }, { title: 'Estado de la vivienda firmado', body: `${job.personName || address(job)} — ${job.condition.length} fotos`, url: `/#/${isQuote(job) ? 'quotes' : 'jobs'}/${job.id}`, tag: `${job.id}:condition` });
+});
+
+// quote → job: a normal job with the client details, the work, and the condition photos (copied) + signature.
+// Admins choose who does it; an employee converting their own quote gets the job.
+app.post('/api/jobs/:id/convert', requireUser(), async (req, res) => {
+  const q = await loadJob(req);
+  if (!isQuote(q)) throw bad(400, 'Esto no es un presupuesto');
+  if (q.convertedTo) return res.json({ quote: q, jobId: q.convertedTo });
+  const assignedTo = req.user.role === 'admin' ? String(req.body?.assignedTo ?? '').trim().toLowerCase() : req.user.email;
+  const job = await insertNumbered('LCC', (id) => {
+    const j = newJob(id, { ...q, assignedTo, clientId: undefined }, req.user.email);
+    return Object.assign(j, { fromQuote: q.id, work: q.work, price: q.price, condition: [], conditionSign: q.conditionSign && { ...q.conditionSign } });
+  });
+  // photo files move under the job, so whoever is assigned can open them
+  const condition = [];
+  for (const p of q.condition || []) {
+    const got = await storage.get(keyOf(p.path)).catch(() => null);
+    if (!got?.ok) continue;
+    const file = `cond_${p.id}.jpg`;
+    await storage.put(`jobs/${job.id}/${file}`, Buffer.from(await got.arrayBuffer()), 'image/jpeg');
+    condition.push({ ...p, path: fileUrl(job.id, file) });
+  }
+  // a link still waiting for the client's signature now belongs to the job; a signed one stays readable from the quote
+  if (job.conditionSign?.signedAt) delete job.conditionSign.signCode;
+  await pool.query(`update jobs set data = data || $2::jsonb where id = $1`, [job.id, { condition, conditionSign: job.conditionSign }]);
+  const quote = await withJob(req, (data) => {
+    data.convertedTo = job.id; data.convertedAt = new Date().toISOString();
+    if (data.conditionSign && !data.conditionSign.signedAt) delete data.conditionSign.signCode;
+  });
+  res.json({ quote, jobId: job.id });
+});
+
 // ── signing by link: public, the long random code in the link is the only key ──
-const changeByCode = async (db, code, lock = false) => {
+// The code belongs to a customer change, or to a condition-photo signature.
+const byCode = async (db, code, lock = false) => {
   if (!CODE_RE.test(code)) throw bad(404, 'This link is not valid');
-  const { rows } = await db.query(`select data from jobs where data->'changes' @> $1::jsonb ${lock ? 'for update' : ''}`, [JSON.stringify([{ signCode: code }])]);
-  const job = rows[0]?.data, change = job?.changes.find((c) => c.signCode === code);
-  if (!change) throw bad(404, 'This link is not valid or the change was cancelled');
-  return { job, change };
+  const { rows } = await db.query(`select data from jobs where data->'changes' @> $1::jsonb or data->'conditionSign'->>'signCode' = $2 limit 1 ${lock ? 'for update' : ''}`,
+    [JSON.stringify([{ signCode: code }]), code]);
+  const job = rows[0]?.data;
+  if (job?.conditionSign?.signCode === code) return { job, target: job.conditionSign, kind: 'condition' };
+  const change = job?.changes?.find((c) => c.signCode === code);
+  if (!change) throw bad(404, 'This link is not valid or was cancelled');
+  return { job, target: change, kind: 'change' };
 };
-const publicChange = (job, c) => ({ company: 'LCC Bathrooms & Services Ltd', address: address(job), jobId: job.id, type: c.type, description: c.description,
-  declaration: CHANGE_DECLARATION, customerName: c.customerName || job.personName || '', signed: isSigned(c), signedAt: c.signedAt, signature: c.signature });
+const publicView = ({ job, target: c, kind }, code) => ({
+  kind, company: 'LCC Bathrooms & Services Ltd', address: address(job), jobId: job.id, customerName: c.customerName || job.personName || '',
+  signed: !!c.signedAt, signedAt: c.signedAt, signature: c.signature,
+  ...(kind === 'change' ? { type: c.type, description: c.description, declaration: CHANGE_DECLARATION }
+    : { declaration: CONDITION_DECLARATION, photos: (job.condition || []).filter((p) => !c.photoIds || c.photoIds.includes(p.id))
+      .map((p) => ({ area: p.area, note: p.note, at: p.at, url: `/api/sign/${code}/photo/${p.id}` })) }),
+});
 app.get('/api/sign/:code', async (req, res) => {
-  const { job, change } = await changeByCode(pool, req.params.code);
-  res.set('cache-control', 'no-store').json(publicChange(job, change));
+  res.set('cache-control', 'no-store').json(publicView(await byCode(pool, req.params.code), req.params.code));
+});
+app.get('/api/sign/:code/photo/:xid', async (req, res) => {
+  const { job, kind } = await byCode(pool, req.params.code);
+  const p = kind === 'condition' && (job.condition || []).find((x) => x.id === req.params.xid);
+  const r = p && await storage.get(keyOf(p.path));
+  if (!r?.ok) throw bad(404, 'Photo not found');
+  res.set({ 'content-type': 'image/jpeg', 'cache-control': 'private, max-age=3600' }).send(Buffer.from(await r.arrayBuffer()));
 });
 app.post('/api/sign/:code', async (req, res) => {
   let sig;
   try { sig = signature(req.body || {}); } catch { throw bad(400, 'Please type your name and sign in the box'); }
   const client = await pool.connect();
-  let job, change, fresh = false;
+  let found, fresh = false;
   try {
     await client.query('begin');
-    ({ job, change } = await changeByCode(client, req.params.code, true));
-    if (!isSigned(change)) {
-      Object.assign(change, sig, { signedAt: new Date().toISOString(), signedVia: 'link', signedIp: clientIp(req), signedAgent: String(req.headers['user-agent'] || '').slice(0, 300) });
+    found = await byCode(client, req.params.code, true);
+    const { job, target, kind } = found;
+    if (!target.signedAt) {
+      if (kind === 'condition' && !job.condition?.length) throw bad(400, 'There are no photos to sign yet');
+      Object.assign(target, sig, { signedAt: new Date().toISOString(), signedVia: 'link', signedIp: clientIp(req), signedAgent: String(req.headers['user-agent'] || '').slice(0, 300),
+        ...(kind === 'condition' ? { photoIds: job.condition.map((p) => p.id) } : {}) });
       await client.query('update jobs set data = $2 where id = $1', [job.id, job]);
       fresh = true;
     }
     await client.query('commit');
   } catch (e) { await client.query('rollback').catch(() => {}); throw e; }
   finally { client.release(); }
-  res.json(publicChange(job, change));
+  res.json(publicView(found, req.params.code));
   if (!fresh) return;
-  const note = { title: `Cambio firmado: ${tr(change.type)}`, body: `${address(job)} — ${change.description} (${change.customerName})`, url: `/#/jobs/${job.id}/changes`, tag: `${job.id}:change` };
+  const { job, target, kind } = found;
+  const note = kind === 'change'
+    ? { title: `Cambio firmado: ${tr(target.type)}`, body: `${address(job)} — ${target.description} (${target.customerName})`, url: `/#/jobs/${job.id}/changes`, tag: `${job.id}:change` }
+    : { title: 'Estado de la vivienda firmado', body: `${target.customerName} — ${job.condition.length} fotos · ${address(job) || job.id}`, url: `/#/${isQuote(job) ? 'quotes' : 'jobs'}/${job.id}`, tag: `${job.id}:condition` };
   notify(pool, { role: 'admin' }, note);
   if (job.assignedTo) notify(pool, { emails: [job.assignedTo], role: 'employee' }, note);
 });
@@ -451,7 +566,7 @@ app.get('/api/jobs/:id/files/:file', requireUser(), async (req, res) => {
 async function jobPdf(job, opts = {}) {
   const images = {}; // photo path -> Buffer
   const paths = [...roomsOf(job).flatMap((r) => ['before', 'after'].flatMap((t) => photosOf(job, r, t))).map((p) => p.path),
-    ...(opts.problems === false ? [] : (job.problems || []).map((p) => p.photoPath).filter(Boolean))];
+    ...(opts.problems === false ? [] : (job.problems || []).map((p) => p.photoPath).filter(Boolean)), ...(job.condition || []).map((p) => p.path)];
   await Promise.all(paths.map(async (path) => {
     const got = await storage.get(keyOf(path)).catch(() => null);
     if (got?.ok) images[path] = Buffer.from(await got.arrayBuffer());

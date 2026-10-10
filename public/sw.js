@@ -8,7 +8,7 @@
 //     per signed-in user, and is wiped on sign-out (see store.js).
 const V = '__V__';
 const SHELL = `lcc-shell-${V}`, PHOTOS = 'lcc-photos';
-const MODULES = ['app.js', 'ui.js', 'store.js', 'push.js', 'home.js', 'lists.js', 'job.js', 'admin.js', 'jobs.mjs'];
+const MODULES = ['app.js', 'ui.js', 'store.js', 'push.js', 'home.js', 'lists.js', 'job.js', 'admin.js', 'quotes.js', 'jobs.mjs'];
 const PRECACHE = ['/', `/style.css?v=${V}`, ...MODULES.map((m) => `/${m}?v=${V}`), '/fonts/material-icons-outlined.woff2', '/img/icon-192.png', '/img/logo.png', '/manifest.json'];
 
 self.addEventListener('install', (e) => e.waitUntil(caches.open(SHELL).then((c) => c.addAll(PRECACHE)).then(() => self.skipWaiting())));

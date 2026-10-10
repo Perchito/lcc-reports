@@ -18,14 +18,14 @@ const field = ([k, label, ph, req, type, ac], value = '') => `<label class="fiel
   <input id="${k}" name="${k}" type="${type}" placeholder="${ph}" value="${esc(value)}" autocomplete="${ac}" ${req ? 'required' : ''} ${k === 'postcode' ? 'autocapitalize="characters"' : ''}></label>`;
 
 // the employee list, kept on the device so jobs can be created and assigned with no signal
-async function employees() {
+export async function employees() {
   try {
     const list = (await store.api('/api/users')).filter((u) => u.active && u.role === 'employee');
     store.cacheUsers(list);
     return list;
   } catch { return (await store.cachedUsers()) || null; }
 }
-const assignSelect = (list, cur) => list
+export const assignSelect = (list, cur) => list
   ? `<select id="assignedTo" name="assignedTo"><option value="">— Sin asignar todavía —</option>${list.map((u) => `<option value="${esc(u.email)}" ${u.email === cur ? 'selected' : ''}>${esc(u.name)} · ${esc(u.email)}</option>`).join('')}
       ${cur && !list.some((u) => u.email === cur) ? `<option selected value="${esc(cur)}">${esc(cur)}</option>` : ''}</select>`
   : `<input id="assignedTo" name="assignedTo" type="email" value="${esc(cur || '')}" placeholder="empleado@correo.com">`;

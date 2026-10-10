@@ -3,12 +3,12 @@
 // so every screen here works with no signal.
 import {
   esc, icon, on, $, $$, go, redraw, chip, empty, progressBar, photoImg, toast, sheet, confirmSheet, viewer, pickPhoto,
-  line1, line2, jobNo, fmtDate, ago, logo, tr,
+  line1, line2, jobNo, fmtDate, ago, logo, tr, signaturePad,
 } from './ui.js?v=__V__';
 import * as store from './store.js?v=__V__';
 import {
   PHOTO_ROOMS, MATERIAL_AREAS, MATERIAL_STATUSES, MATERIAL_UNITS, PROBLEM_CATEGORIES, CHANGE_TYPES, CHANGE_DECLARATION, STATUS,
-  address, progress, nextStep, reviewChecklist, changesSummary, isSigned, displayStatus, photoCount, materialList, isOpen, roomsOf, slug, MAX_ROOMS, photosOf, extrasOf,
+  address, progress, nextStep, reviewChecklist, changesSummary, isSigned, money, displayStatus, photoCount, materialList, isOpen, roomsOf, slug, MAX_ROOMS, photosOf, extrasOf,
 } from './jobs.mjs?v=__V__';
 
 const enc = encodeURIComponent;
@@ -27,7 +27,7 @@ const pdfQuery = (o) => PDF_PARTS.filter(([k]) => o[k] === false).map(([k]) => `
 const pdfCache = new Map(); // `${job id}?${parts}` -> { stamp, blob: Promise<Blob> } (dropped when the job changes)
 function fetchPdf(j, o = pdfOpts()) {
   const key = `${j.id}?${pdfQuery(o)}`, hit = pdfCache.get(key);
-  const stamp = JSON.stringify([j.status, j.submittedAt, j.reportGeneratedAt, j.photos, j.materials, j.problems?.length, j.changes?.map((c) => c.signedAt)]);
+  const stamp = JSON.stringify(j); // any change to the job makes a new PDF
   if (hit?.stamp === stamp) return hit.blob;
   const blob = (async () => {
     const res = await fetch(`/api/jobs/${enc(j.id)}/pdf${pdfQuery(o) ? `?${pdfQuery(o)}` : ''}`).catch(() => null);
@@ -39,7 +39,7 @@ function fetchPdf(j, o = pdfOpts()) {
   pdfCache.set(key, { stamp, blob });
   return blob;
 }
-const pdfName = (j) => `LCC-Report-${j.id}.pdf`;
+const pdfName = (j) => `LCC-${j.kind === 'quote' ? 'Quote' : 'Report'}-${j.id}.pdf`;
 // iPhone home-screen apps can't download from a link (they only open a viewer), so on phones the PDF goes
 // to the share sheet ("Guardar en Archivos", WhatsApp, AirDrop…). Elsewhere: a normal download.
 export async function downloadPdf(j, o) {
@@ -124,7 +124,10 @@ async function details(id, q, me) {
       ${waiting && !j.pendingCreate ? `<p class="notice">${icon('cloud_upload')}${waiting} cambio${waiting === 1 ? '' : 's'} guardado${waiting === 1 ? '' : 's'} en este móvil ${store.sync.reachable ? '— sincronizando…' : '— se sincronizará cuando vuelvas a tener conexión'}</p>` : ''}
       <section class="card progress-card"><div class="row-between"><h3 class="label">Progreso del trabajo</h3><b class="big-pct">${p.pct}%</b></div>
         ${progressBar(p.pct, 'Progreso del trabajo')}<p class="muted">${p.done} de ${p.total} etapas completadas${isOpen(j) ? ` · Siguiente: <b>${esc(ns.label)}</b>` : ''}</p></section>
+      ${j.fromQuote ? `<p class="notice">${icon('request_quote')}<span>Viene del presupuesto <a href="#/quotes/${esc(j.fromQuote)}">${esc(j.fromQuote)}</a>${j.price != null ? ` · ${esc(money(j.price))}` : ''}</span></p>` : ''}
+      ${j.work ? `<section class="card info-card"><h3 class="label">Trabajo acordado</h3><p class="pre">${esc(j.work)}</p></section>` : ''}
       <section class="flow">
+        ${j.condition?.length || j.conditionSign ? step(`${base}/condition`, 'house', 'Estado de la vivienda', `${j.condition?.length || 0} fotos · ${j.conditionSign?.signedAt ? 'firmado' : j.conditionSign ? 'esperando firma' : 'sin firmar'}`, j.conditionSign?.signedAt ? 'done' : 'part') : ''}
         ${step(`${base}/photos/before`, 'photo_camera', 'Fotos antes', p.photos ? `${p.before} / ${p.photos} hechas` : 'Añade zonas de fotos', p.photos && p.before === p.photos ? 'done' : p.before ? 'part' : 'todo')}
         ${step(`${base}/materials`, 'inventory_2', 'Materiales', mats ? `${mats} material${mats === 1 ? '' : 'es'}` : 'Ninguno anotado aún', mats ? 'done' : 'todo')}
         ${step(`${base}/problems`, 'report_problem', 'Problemas', probs ? `${probs} comunicado${probs === 1 ? '' : 's'}` : 'Ninguno comunicado', probs ? 'warn' : 'todo')}
@@ -476,10 +479,10 @@ async function newProblem(id, q) {
 // ── customer changes: extra work added / agreed work taken off, signed by the customer ──
 // signed on the worker's phone, or through a link the customer opens on their own phone (/sign/<code>, public page)
 const signUrl = (c) => `${location.origin}/sign/${c.signCode}`;
-async function shareSignLink(j, c) {
-  const url = signUrl(c), text = `LCC Bathrooms & Services — please review and sign this change to the work at ${address(j)}:`;
+export async function shareSignLink(j, c, what = 'this change to the work') {
+  const url = signUrl(c), text = `LCC Bathrooms & Services — please review and sign ${what}${address(j) ? ` at ${address(j)}` : ''}:`;
   if (navigator.share) {
-    try { return await navigator.share({ title: 'Change to agreed work', text, url }); } catch (e) { if (e.name === 'AbortError') return; }
+    try { return await navigator.share({ title: 'LCC Bathrooms & Services', text, url }); } catch (e) { if (e.name === 'AbortError') return; }
   }
   try { await navigator.clipboard.writeText(`${text} ${url}`); toast('Enlace copiado — pégalo en WhatsApp, SMS o correo'); }
   catch { sheet(`<h2>Enlace para firmar</h2><p class="muted">Copia este enlace y envíaselo al cliente:</p><p class="mono" style="word-break:break-all">${esc(url)}</p><div class="sheet-actions"><button class="btn btn-secondary" data-close>Cerrar</button></div>`); }
@@ -516,7 +519,7 @@ async function newChange(id) {
   const j = await getJob(id);
   const draftKey = `change:${j.id}`;
   const draft = (await store.getDraft(draftKey)) || {};
-  let type = draft.type || '', how = draft.how || 'here', inked = false, saved = false;
+  let type = draft.type || '', how = draft.how || 'here', sig = null, saved = false;
   return {
     title: 'Nuevo cambio', back: `#/jobs/${enc(id)}/changes`,
     body: `<p class="lead">${esc(address(j))}</p>
@@ -539,7 +542,7 @@ async function newChange(id) {
       <p class="muted" id="linkinfo" ${how === 'link' ? '' : 'hidden'}>Se abrirá el menú para compartir (WhatsApp, SMS, correo…). El cliente abre el enlace en su móvil, lo lee y firma. Te avisaremos cuando firme.</p>
       <p class="form-error" id="err" role="alert" hidden></p>`,
     footer: `<button class="btn btn-primary btn-lg" id="sign">${how === 'link' ? `${icon('send_to_mobile')} Crear y enviar enlace` : `${icon('gesture')} Firmar y guardar`}</button>`,
-    dirty: () => inked && !saved,
+    dirty: () => sig?.inked() && !saved,
     mount(v, f) {
       const save = () => store.saveDraft(draftKey, { type, how, description: $('#desc', v).value, customerName: $('#cname', v).value });
       on(v, 'input[name=type]', 'change', (e, el) => { type = el.value; save(); });
@@ -547,28 +550,15 @@ async function newChange(id) {
         how = el.value; save();
         $('#here', v).hidden = how !== 'here'; $('#linkinfo', v).hidden = how !== 'link';
         $('#sign', f).innerHTML = how === 'link' ? `${icon('send_to_mobile')} Crear y enviar enlace` : `${icon('gesture')} Firmar y guardar`;
-        if (how === 'here') fit(); // the pad had no size while hidden
+        if (how === 'here') sig.fit(); // the pad had no size while hidden
       });
       on(v, '#desc', 'input', save); on(v, '#cname', 'input', save);
-      // signature pad: plain canvas + pointer events (finger, pen or mouse)
-      const pad = $('#sig', v), ctx = pad.getContext('2d');
-      const fit = () => {
-        const d = Math.min(devicePixelRatio || 1, 2);
-        pad.width = pad.offsetWidth * d; pad.height = pad.offsetHeight * d;
-        ctx.scale(d, d); Object.assign(ctx, { lineWidth: 2.5, lineCap: 'round', lineJoin: 'round', strokeStyle: '#0f1f24' });
-        inked = false;
-      };
-      fit();
-      let drawing = false;
-      const at = (e) => { const r = pad.getBoundingClientRect(); return [(e.clientX - r.left) * (pad.offsetWidth / r.width), (e.clientY - r.top) * (pad.offsetHeight / r.height)]; };
-      pad.onpointerdown = (e) => { drawing = true; pad.setPointerCapture(e.pointerId); ctx.beginPath(); ctx.moveTo(...at(e)); ctx.lineTo(...at(e)); ctx.stroke(); inked = true; };
-      pad.onpointermove = (e) => { if (!drawing) return; ctx.lineTo(...at(e)); ctx.stroke(); };
-      pad.onpointerup = pad.onpointercancel = () => { drawing = false; };
-      on(v, '#clear', 'click', fit);
+      sig = signaturePad($('#sig', v));
+      on(v, '#clear', 'click', sig.fit);
       on(f, '#sign', 'click', () => {
         const description = $('#desc', v).value.trim(), customerName = $('#cname', v).value.trim(), err = $('#err', v);
         const miss = !type ? 'Elige añadir o quitar.' : !description ? 'Describe el cambio.' : how === 'link' ? ''
-          : !customerName ? 'Escribe el nombre del cliente.' : !inked ? 'Falta la firma del cliente.' : '';
+          : !customerName ? 'Escribe el nombre del cliente.' : !sig.inked() ? 'Falta la firma del cliente.' : '';
         if (miss) { err.hidden = false; err.textContent = miss; return; }
         saved = true; store.clearDraft(draftKey);
         if (how === 'link') {
@@ -578,7 +568,7 @@ async function newChange(id) {
           shareSignLink(j, c); // straight from the tap, so iPhone allows the share sheet
           if (!store.sync.reachable) toast('Sin conexión: el enlace funcionará en cuanto el cambio llegue al servidor', 'bad');
         } else {
-          store.addChange(id, { type, description, customerName, signature: pad.toDataURL('image/png'), signedAt: new Date().toISOString() });
+          store.addChange(id, { type, description, customerName, signature: sig.png(), signedAt: new Date().toISOString() });
           toast(store.sync.reachable ? 'Cambio firmado y guardado' : 'Cambio guardado — se enviará cuando tengas conexión');
         }
         location.replace(`#/jobs/${enc(id)}/changes`);
@@ -679,6 +669,9 @@ async function reportDetail(id, q, me) {
         : '<p class="muted">No hay materiales anotados en este trabajo.</p>'}
       <h3 class="section-title">Problemas <span>${j.problems?.length || 0}</span></h3>
       ${j.problems?.length ? `<div class="card-list">${j.problems.map((pr) => problemCard(j, pr)).join('')}</div>` : '<p class="muted">No se ha comunicado ningún problema.</p>'}
+      ${j.condition?.length ? `<h3 class="section-title">Estado de la vivienda <span>${j.condition.length}</span></h3>
+        <a class="card cond-strip-card" href="#/jobs/${esc(id)}/condition"><div class="cond-strip">${j.condition.slice(0, 8).map((c) => photoImg(c.path, c.area || '')).join('')}</div>
+        <small class="muted">${j.conditionSign?.signedAt ? `Firmado por ${esc(j.conditionSign.customerName)} · ${fmtDate(j.conditionSign.signedAt)}` : 'Sin firmar'}</small></a>` : ''}
       <h3 class="section-title">Cambios del cliente <span>${j.changes?.length || 0}</span></h3>
       ${j.changes?.length ? `<div class="card-list">${j.changes.map(changeCard).join('')}</div>` : '<p class="muted">El cliente no ha pedido cambios.</p>'}
       <h3 class="section-title">Datos del informe</h3>

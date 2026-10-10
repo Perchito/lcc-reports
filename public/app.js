@@ -1,13 +1,14 @@
 // App shell + router. Every screen returns a description
 //   { title, back, tab, actions, body, footer, live, mount(view), dirty() }
 // and the shell draws it the same way: safe-area header, content, optional fixed
-// bottom action, bottom tabs on phones (Home · Jobs · Reports · More) or a sidebar on desktop.
+// bottom action, bottom tabs on phones (Home · Jobs · Reports · Quotes · More) or a sidebar on desktop.
 import { esc, icon, $, $$, on, toast, sheet, confirmSheet, hydrate, setLocalResolver, logo, ago, fmtTime } from './ui.js?v=__V__';
 import * as store from './store.js?v=__V__';
 import { notifications } from './lists.js?v=__V__';
 import { ROUTES as JOB_ROUTES } from './job.js?v=__V__';
 import { ROUTES as LIST_ROUTES } from './lists.js?v=__V__';
 import { ROUTES as ADMIN_ROUTES } from './admin.js?v=__V__';
+import { ROUTES as QUOTE_ROUTES } from './quotes.js?v=__V__';
 import { home } from './home.js?v=__V__';
 import { pushState, enablePush, disablePush, refreshPush } from './push.js?v=__V__';
 
@@ -83,7 +84,7 @@ function loginScreen(message = '') {
 }
 
 // ── shell ───────────────────────────────────────────────
-const TABS = [['home', '#/home', 'home', 'Inicio'], ['jobs', '#/jobs', 'work_outline', 'Trabajos'], ['reports', '#/reports', 'description', 'Informes'], ['more', '#/more', 'menu', 'Más']];
+const TABS = [['home', '#/home', 'home', 'Inicio'], ['jobs', '#/jobs', 'work_outline', 'Trabajos'], ['reports', '#/reports', 'description', 'Informes'], ['quotes', '#/quotes', 'request_quote', 'Presupuestos'], ['more', '#/more', 'menu', 'Más']];
 function shell() {
   const admin = me.role === 'admin';
   $app.innerHTML = `
@@ -91,7 +92,7 @@ function shell() {
       <aside class="sidebar" aria-label="Main">
         <div class="side-brand">${logo(40)}<div><b>LCC Informes</b><small>${admin ? 'Administración' : 'App de campo'}</small></div></div>
         <nav class="side-nav">
-          ${TABS.slice(0, 3).map(([k, h, ic, l]) => `<a href="${h}" data-tab="${k}">${icon(ic)}<span>${k === 'home' && admin ? 'Panel' : l}</span></a>`).join('')}
+          ${TABS.slice(0, 4).map(([k, h, ic, l]) => `<a href="${h}" data-tab="${k}">${icon(ic)}<span>${k === 'home' && admin ? 'Panel' : l}</span></a>`).join('')}
           ${admin ? `<a href="#/new" data-tab="new">${icon('add_home_work')}<span>Nuevo trabajo</span></a><a href="#/team" data-tab="team">${icon('groups')}<span>Equipo</span></a>` : ''}
           <a href="#/notifications" data-tab="notifications">${icon('notifications')}<span>Notificaciones</span><b class="badge" data-badge hidden></b></a>
           <a href="#/more" data-tab="more">${icon('settings')}<span>Ajustes</span></a>
@@ -148,7 +149,7 @@ const CORE = [
   [/^\/sync$/, () => syncScreen()],
   [/^\/notifications$/, () => notificationsScreen()],
 ];
-const ROUTES = [...CORE, ...LIST_ROUTES, ...JOB_ROUTES, ...ADMIN_ROUTES];
+const ROUTES = [...CORE, ...LIST_ROUTES, ...JOB_ROUTES, ...QUOTE_ROUTES, ...ADMIN_ROUTES];
 
 // a small in-app history so "Back" returns where you came from, or to the screen's parent
 const stack = JSON.parse(sessionStorage.getItem('lcc-stack') || '[]');
@@ -310,7 +311,7 @@ function changePassword() {
 // ── Sync & offline ──────────────────────────────────────
 function syncScreen() {
   const s = store.sync, list = store.pending();
-  const photos = list.filter((o) => o.kind === 'photo' || o.kind === 'photoX' || (o.kind === 'problem' && o.blobKey)).length;
+  const photos = list.filter((o) => o.kind === 'photo' || o.kind === 'photoX' || o.kind === 'condX' || (o.kind === 'problem' && o.blobKey)).length;
   const failed = list.filter((o) => o.state === 'failed');
   return {
     title: 'Sincronización', back: '#/more', live: true, side: 'more',
@@ -326,7 +327,7 @@ function syncScreen() {
         <div class="card failed-op"><div><b>${store.OP_LABEL[o.kind]}</b> · ${esc(o.jobId)}<p class="muted">${esc(o.error)}</p></div>
           <div class="btn-row"><button class="btn btn-secondary btn-sm" data-retry="${esc(o.id)}">Reintentar</button><button class="btn btn-text btn-sm danger" data-discard="${esc(o.id)}">Descartar</button></div></div>`).join('')}` : ''}
       ${list.length ? `<h3 class="section-title">Pendiente de enviar</h3><div class="list-card">${list.filter((o) => o.state !== 'failed').map((o) => `
-        <div class="list-row static">${icon(o.kind === 'photo' || o.kind === 'photoX' ? 'photo_camera' : 'edit')}<span>${store.OP_LABEL[o.kind]} · ${esc(o.jobId)}</span><span class="row-meta">${store.sync.sendingId === o.id ? 'Enviando…' : 'En cola'}</span></div>`).join('')}</div>`
+        <div class="list-row static">${icon(['photo', 'photoX', 'condX'].includes(o.kind) ? 'photo_camera' : 'edit')}<span>${store.OP_LABEL[o.kind]} · ${esc(o.jobId)}</span><span class="row-meta">${store.sync.sendingId === o.id ? 'Enviando…' : 'En cola'}</span></div>`).join('')}</div>`
         : `<div class="state-card small">${icon('cloud_done')}<h2>Todo sincronizado</h2><p>Tu trabajo está a salvo en el servidor.</p></div>`}
       <p class="muted small">Lo que hagas sin cobertura se guarda en este móvil y se envía solo cuando vuelva la conexión.</p>`,
     footer: `<button class="btn btn-primary btn-lg" id="now">${icon('sync')} Sincronizar ahora</button>`,
@@ -365,7 +366,7 @@ window.addEventListener('lcc:job-id', ({ detail: { tempId, realId } }) => {
   for (let k = 0; k < stack.length; k++) stack[k] = stack[k].replace(tempId, realId);
   sessionStorage.setItem('lcc-stack', JSON.stringify(stack));
   if (location.hash.includes(tempId)) { currentKey = location.hash.replace(tempId, realId); history.replaceState(null, '', currentKey); }
-  toast(`Trabajo ${realId} creado`);
+  toast(`${realId.startsWith("Q-") ? "Presupuesto" : "Trabajo"} ${realId} creado`);
   rerender();
 });
 navigator.serviceWorker?.addEventListener('message', (e) => { if (e.data?.go) location.href = e.data.go; }); // tapped a notification

@@ -224,3 +224,22 @@ async function compress(file) {
 
 // ── logo (official LCC artwork, white background) ───────
 export const logo = (size) => `<img class="logo" src="/img/logo.png" style="--s:${size}px" alt="LCC Bathrooms &amp; Services Ltd">`;
+
+// ── signature pad: plain canvas + pointer events (finger, pen or mouse) ──
+// fit() sizes it to its box (call again once a hidden pad is shown) and clears it.
+export function signaturePad(pad) {
+  const ctx = pad.getContext('2d');
+  let inked = false, drawing = false;
+  const fit = () => {
+    const d = Math.min(devicePixelRatio || 1, 2);
+    pad.width = pad.offsetWidth * d; pad.height = pad.offsetHeight * d;
+    ctx.scale(d, d); Object.assign(ctx, { lineWidth: 2.5, lineCap: 'round', lineJoin: 'round', strokeStyle: '#0f1f24' });
+    inked = false;
+  };
+  const at = (e) => { const r = pad.getBoundingClientRect(); return [(e.clientX - r.left) * (pad.offsetWidth / r.width), (e.clientY - r.top) * (pad.offsetHeight / r.height)]; };
+  pad.onpointerdown = (e) => { drawing = true; pad.setPointerCapture(e.pointerId); ctx.beginPath(); ctx.moveTo(...at(e)); ctx.lineTo(...at(e)); ctx.stroke(); inked = true; };
+  pad.onpointermove = (e) => { if (drawing) { ctx.lineTo(...at(e)); ctx.stroke(); } };
+  pad.onpointerup = pad.onpointercancel = () => { drawing = false; };
+  fit();
+  return { fit, inked: () => inked, png: () => pad.toDataURL('image/png') };
+}

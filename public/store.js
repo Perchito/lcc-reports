@@ -8,7 +8,7 @@
 //
 //   local change → IndexedDB outbox (queued) → server reachable → sending → server
 //   confirms → removed (job copy updated)   |   refused → kept as failed (retry/discard)
-import { PHOTO_ROOMS, MATERIAL_AREAS, newJob, roomsOf, slug, dropMain } from './jobs.mjs?v=__V__';
+import { PHOTO_ROOMS, MATERIAL_AREAS, newJob, newQuote, isQuote, roomsOf, slug, dropMain } from './jobs.mjs?v=__V__';
 
 // ── IndexedDB: kv (job cache per user), outbox (changes), blobs (photos not yet uploaded) ──
 // iPhone Lockdown Mode (and some private windows) can leave IndexedDB missing or never answering: the app then
@@ -158,15 +158,18 @@ export async function loadJob(id) {
 
 // ── reading: server copy + pending changes ──────────────
 export const isTemp = (id) => String(id).startsWith('NEW-');
-export const jobs = () => [...new Set([...server.keys(), ...ops.filter((o) => o.kind === 'create').map((o) => o.jobId)])].map(job).filter(Boolean)
+const everything = () => [...new Set([...server.keys(), ...ops.filter((o) => o.kind === 'create').map((o) => o.jobId)])].map(job).filter(Boolean)
   .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+// quotes share the jobs table (and this cache + outbox) but are listed on their own
+export const jobs = () => everything().filter((j) => !isQuote(j));
+export const quotes = () => everything().filter(isQuote);
 export function job(id) {
   id = canon(id);
   let base = server.get(id);
   if (!base) { // a job created on this device that hasn't reached the server yet
     const c = ops.find((o) => o.kind === 'create' && o.jobId === id);
     if (!c) return null;
-    base = { ...newJob(id, c.body, me?.email), createdAt: new Date(c.seq).toISOString(), pendingCreate: true };
+    base = { ...(c.body.kind === 'quote' ? newQuote : newJob)(id, c.body, me?.email), createdAt: new Date(c.seq).toISOString(), pendingCreate: true };
   }
   return ops.filter((o) => o.jobId === id && o.kind !== 'create').reduce(applyOp, structuredClone(base));
 }
@@ -205,6 +208,18 @@ export function applyOp(j, o) {
     case 'problem': if (!j.problems?.some((p) => p.id === b.id)) (j.problems ??= []).push({ ...b, photoPath: o.blobKey ? `local:${o.blobKey}` : null, createdBy: me?.email, createdAt: new Date(o.seq).toISOString() }); break;
     case 'change': if (!j.changes?.some((c) => c.id === b.id)) (j.changes ??= []).push(b.remote ? { id: b.id, type: b.type, description: b.description, customerName: b.customerName || '', signature: null, signedAt: null, signCode: b.signCode, createdBy: me?.email, createdAt: new Date(o.seq).toISOString() }
       : { ...b, signedVia: 'device', createdBy: me?.email, createdAt: new Date(o.seq).toISOString() }); break;
+    case 'condX': {
+      const photo = { id: b.xid, path: `local:${o.blobKey}`, area: b.area, note: b.note, by: me?.email, at: new Date(o.seq).toISOString() };
+      const list = (j.condition ??= []), i = list.findIndex((x) => x.id === b.xid);
+      if (i >= 0) list[i] = { ...list[i], path: photo.path }; else list.push(photo);
+      break;
+    }
+    case 'condEdit': { const p = j.condition?.find((x) => x.id === b.xid); if (p) Object.assign(p, b.fields); break; }
+    case 'condDel': if (j.condition) j.condition = j.condition.filter((x) => x.id !== b.xid); break;
+    case 'condSign': if (!j.conditionSign?.signedAt && !(b.remote && j.conditionSign?.signCode)) j.conditionSign = b.remote
+      ? { customerName: b.customerName || '', signature: null, signedAt: null, signCode: b.signCode, sentBy: me?.email, sentAt: new Date(o.seq).toISOString() }
+      : { customerName: b.customerName, signature: b.signature, signedAt: new Date(o.seq).toISOString(), signedVia: 'device', witnessedBy: me?.email, photoIds: (j.condition || []).map((p) => p.id) };
+      break;
     case 'changeDel': if (j.changes) j.changes = j.changes.filter((c) => c.id !== b.cid || c.signature); break;
   }
   return j;
@@ -255,6 +270,12 @@ export function addChange(jobId, change) {
   enqueue({ id: `change:${jobId}:${id}`, jobId, kind: 'change', body: { ...change, id } });
   return id;
 }
+// condition photos (quotes): one op slot per photo, so deleting a photo that never uploaded just drops it
+export const conditionPhoto = (jobId, blob, { area = '', note = '' } = {}, xid = rid()) => enqueue({ id: `cond:${jobId}:${xid}`, jobId, kind: 'condX', body: { xid, area, note } }, blob);
+export const editCondition = (jobId, xid, fields) => enqueue({ id: `cedit:${jobId}:${xid}`, jobId, kind: 'condEdit', body: { xid, fields } });
+export const deleteCondition = (jobId, xid) => enqueue({ id: `cond:${jobId}:${xid}`, jobId, kind: 'condDel', body: { xid } });
+export const signCondition = (jobId, body) => enqueue({ id: `csign:${jobId}:${rid()}`, jobId, kind: 'condSign', body });
+export const conditionPending = (jobId, xid) => ops.some((x) => x.id === `cond:${canon(jobId)}:${xid}` && x.kind === 'condX');
 export const cancelChange = (jobId, cid) => enqueue({ id: `changeDel:${jobId}:${cid}`, jobId, kind: 'changeDel', body: { cid } });
 
 // ── sync ────────────────────────────────────────────────
@@ -285,6 +306,12 @@ async function send(o) {
       return api(`${base}/problems`, { method: 'POST', body: { ...b, photoPath } });
     }
     case 'change': return api(`${base}/changes`, { method: 'POST', body: b });
+    case 'condX':
+      if (!blob) throw Object.assign(new Error('La foto ya no está en este móvil — vuelve a hacerla'), { status: 410 });
+      return api(`${base}/condition/${b.xid}?area=${enc(b.area || '')}&note=${enc(b.note || '')}`, { method: 'PUT', raw: blob });
+    case 'condEdit': return api(`${base}/condition/${b.xid}`, { method: 'PATCH', body: b.fields });
+    case 'condDel': return api(`${base}/condition/${b.xid}`, { method: 'DELETE' });
+    case 'condSign': return api(`${base}/condition-sign`, { method: 'POST', body: b });
     case 'changeDel': return api(`${base}/changes/${enc(b.cid)}`, { method: 'DELETE' });
   }
 }
@@ -360,7 +387,7 @@ export function slotState(jobId, room, type) {
 /** True while an extra photo is still waiting to upload */
 export const extraPending = (jobId, room, type, xid) => ops.some((x) => x.id === `xslot:${canon(jobId)}:${slug(room)}:${type}:${xid}` && x.kind === 'photoX');
 export const slotOp = (jobId, room, type) => ops.find((x) => x.id === `slot:${canon(jobId)}:${slug(room)}:${type}`);
-export const OP_LABEL = { roomAdd: 'Nueva zona de fotos', roomDel: 'Zona de fotos quitada', roomRen: 'Zona de fotos renombrada', create: 'Nuevo trabajo', patch: 'Cambio en el trabajo', photo: 'Foto', photoDel: 'Foto borrada', photoX: 'Foto extra', photoXDel: 'Foto extra borrada', matAdd: 'Nuevo material', matEdit: 'Cambio de material', matDel: 'Material quitado', problem: 'Problema comunicado', change: 'Cambio del cliente', changeDel: 'Cambio cancelado' };
+export const OP_LABEL = { roomAdd: 'Nueva zona de fotos', roomDel: 'Zona de fotos quitada', roomRen: 'Zona de fotos renombrada', create: 'Nuevo trabajo', patch: 'Cambio en el trabajo', photo: 'Foto', photoDel: 'Foto borrada', photoX: 'Foto extra', photoXDel: 'Foto extra borrada', matAdd: 'Nuevo material', matEdit: 'Cambio de material', matDel: 'Material quitado', problem: 'Problema comunicado', change: 'Cambio del cliente', changeDel: 'Cambio cancelado', condX: 'Foto del estado', condEdit: 'Nota de foto', condDel: 'Foto del estado borrada', condSign: 'Firma del estado' };
 
 // ── drafts (forms in progress) and the employee list, per user, wiped on sign-out ──
 export const getDraft = (key) => kvGet(`draft:${me.id}:${key}`);
