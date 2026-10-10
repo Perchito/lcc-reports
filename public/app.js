@@ -340,7 +340,8 @@ function syncScreen() {
 
 // ── Notifications ───────────────────────────────────────
 const NOTE = { assigned: ['assignment_ind', 'Nuevo trabajo', 'Asignado a ti', 'Abrir trabajo'], submitted: ['send', 'Informe enviado', 'Pendiente de revisión', 'Abrir informe'],
-  reviewed: ['verified', 'Informe revisado', 'Tu informe ha sido revisado', 'Abrir informe'], problem: ['report_problem', 'Problema comunicado', '', 'Abrir trabajo'] };
+  reviewed: ['verified', 'Informe revisado', 'Tu informe ha sido revisado', 'Abrir informe'], problem: ['report_problem', 'Problema comunicado', '', 'Abrir trabajo'],
+  change: ['gesture', 'Cambio firmado por el cliente', '', 'Ver cambios'] };
 function notificationsScreen() {
   const seen = Number(safeGet(`lcc-seen:${me.id}`) || 0);
   const events = notifications(me);

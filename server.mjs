@@ -6,7 +6,7 @@ import {
   loginBlocked, loginFailed, loginOk,
 } from './lib/auth.mjs';
 import { homeStorage } from './lib/home-storage.mjs';
-import { MATERIAL_AREAS, MAX_ROOMS, STATUS, tr, newJob, cleanPatch, materialItem, problemItem, slug, roomsOf, findRoom, cleanRooms, photosOf, dropMain, MAX_EXTRA } from './lib/jobs.mjs';
+import { MATERIAL_AREAS, MAX_ROOMS, STATUS, tr, newJob, cleanPatch, materialItem, problemItem, changeItem, slug, roomsOf, findRoom, cleanRooms, photosOf, dropMain, MAX_EXTRA } from './lib/jobs.mjs';
 import { reportPdf, pdfFilename } from './lib/pdf.mjs';
 import { sendEmail, emailConfigured } from './lib/mailer.mjs';
 import { pushRoutes, notify } from './lib/push.mjs';
@@ -375,6 +375,18 @@ app.post('/api/jobs/:id/problems', requireUser(), async (req, res) => {
   if (added) notify(pool, { role: 'admin', except: req.user.id }, { title: `Problema: ${tr(problem.category)}`, body: `${address(job)}${problem.area ? ` · ${tr(problem.area)}` : ''} — ${problem.description}`, url: `/#/jobs/${job.id}/problems`, tag: `${job.id}:problem` });
 });
 
+// customer change requests, signed on the worker's phone; the id comes from the phone so a resend never duplicates one
+app.post('/api/jobs/:id/changes', requireUser(), async (req, res) => {
+  const change = changeItem(req.body || {}, req.user.email);
+  let added = false;
+  const job = await withJob(req, (data) => {
+    data.changes ??= [];
+    if (!data.changes.some((c) => c.id === change.id)) { data.changes.push(change); added = true; }
+  });
+  res.json(job);
+  if (added) notify(pool, { role: 'admin', except: req.user.id }, { title: `Cambio firmado: ${tr(change.type)}`, body: `${address(job)} — ${change.description} (${change.customerName})`, url: `/#/jobs/${job.id}/changes`, tag: `${job.id}:change` });
+});
+
 const fileKey = (req) => {
   if (!/^[a-z0-9_]+\.jpg$/.test(req.params.file)) throw bad(404, 'No encontrado');
   return `jobs/${req.params.id}/${req.params.file}`;
@@ -389,7 +401,7 @@ app.get('/api/jobs/:id/files/:file', requireUser(), async (req, res) => {
     .send(Buffer.from(await r.arrayBuffer()));
 });
 
-// the report PDF with every photo it shows; opts.materials / opts.problems = false leave those sections out
+// the report PDF with every photo it shows; opts.materials / opts.problems / opts.changes = false leave those sections out
 async function jobPdf(job, opts = {}) {
   const images = {}; // photo path -> Buffer
   const paths = [...roomsOf(job).flatMap((r) => ['before', 'after'].flatMap((t) => photosOf(job, r, t))).map((p) => p.path),
@@ -406,7 +418,7 @@ app.get('/api/jobs/:id/pdf', requireUser(), async (req, res) => {
   res.set({
     'content-type': 'application/pdf', 'cache-control': 'private, no-store',
     'content-disposition': `${req.query.download ? 'attachment' : 'inline'}; filename="${pdfFilename(job)}"`,
-  }).send(await jobPdf(job, { materials: req.query.materials !== '0', problems: req.query.problems !== '0' }));
+  }).send(await jobPdf(job, { materials: req.query.materials !== '0', problems: req.query.problems !== '0', changes: req.query.changes !== '0' }));
 });
 
 // every submitted report goes to the office by email, PDF attached (REPORT_EMAIL_TO, default Daniel)

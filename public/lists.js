@@ -144,6 +144,7 @@ export function notifications(me) {
     if (me.role === 'admin') {
       if (j.submittedAt && displayStatus(j) !== 'Reviewed') events.push({ ...base, type: 'submitted', at: Date.parse(j.submittedAt), href: `#/reports/${j.id}`, text: `Enviado por ${j.assignedTo || 'el empleado'}` });
       for (const p of j.problems || []) if (isOpen(j)) events.push({ ...base, type: 'problem', at: Date.parse(p.createdAt), href: `#/jobs/${j.id}/problems`, text: `${tr(p.category)}${p.area ? ` · ${tr(p.area)}` : ''} — ${p.description}` });
+      for (const c of j.changes || []) if (isOpen(j)) events.push({ ...base, type: 'change', at: Date.parse(c.signedAt), href: `#/jobs/${j.id}/changes`, text: `${tr(c.type)} — ${c.description} (${c.customerName})` });
     } else {
       if (j.assignedTo && !photoCount(j, 'before') && isOpen(j)) events.push({ ...base, type: 'assigned', at: Date.parse(j.assignedAt || j.createdAt), href: `#/jobs/${j.id}` });
       if (j.reviewedAt || displayStatus(j) === 'Reviewed') events.push({ ...base, type: 'reviewed', at: Date.parse(j.reviewedAt || j.submittedAt || j.createdAt), href: `#/reports/${j.id}` });

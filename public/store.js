@@ -203,6 +203,7 @@ export function applyOp(j, o) {
     case 'matEdit': { const f = findMat(b.mid); if (f) { const item = { ...j.materials[f.area][f.i], ...b.fields }; j.materials[f.area].splice(f.i, 1); (j.materials[b.fields.area || f.area] ??= []).push(item); delete item.area; } break; }
     case 'matDel': { const f = findMat(b.mid); if (f) j.materials[f.area].splice(f.i, 1); break; }
     case 'problem': if (!j.problems?.some((p) => p.id === b.id)) (j.problems ??= []).push({ ...b, photoPath: o.blobKey ? `local:${o.blobKey}` : null, createdBy: me?.email, createdAt: new Date(o.seq).toISOString() }); break;
+    case 'change': if (!j.changes?.some((c) => c.id === b.id)) (j.changes ??= []).push({ ...b, createdBy: me?.email, createdAt: new Date(o.seq).toISOString() }); break;
   }
   return j;
 }
@@ -246,6 +247,12 @@ export function addProblem(jobId, problem, blob) {
   return id;
 }
 
+export function addChange(jobId, change) {
+  const id = rid();
+  enqueue({ id: `change:${jobId}:${id}`, jobId, kind: 'change', body: { ...change, id } });
+  return id;
+}
+
 // ── sync ────────────────────────────────────────────────
 const enc = encodeURIComponent;
 async function send(o) {
@@ -273,6 +280,7 @@ async function send(o) {
       if (blob) photoPath = (await api(`${base}/files/problem?pid=${enc(b.id)}`, { method: 'PUT', raw: blob })).url;
       return api(`${base}/problems`, { method: 'POST', body: { ...b, photoPath } });
     }
+    case 'change': return api(`${base}/changes`, { method: 'POST', body: b });
   }
 }
 // the server gave a job created offline its real Job ID: move its waiting changes over to it
@@ -347,7 +355,7 @@ export function slotState(jobId, room, type) {
 /** True while an extra photo is still waiting to upload */
 export const extraPending = (jobId, room, type, xid) => ops.some((x) => x.id === `xslot:${canon(jobId)}:${slug(room)}:${type}:${xid}` && x.kind === 'photoX');
 export const slotOp = (jobId, room, type) => ops.find((x) => x.id === `slot:${canon(jobId)}:${slug(room)}:${type}`);
-export const OP_LABEL = { roomAdd: 'Nueva zona de fotos', roomDel: 'Zona de fotos quitada', roomRen: 'Zona de fotos renombrada', create: 'Nuevo trabajo', patch: 'Cambio en el trabajo', photo: 'Foto', photoDel: 'Foto borrada', photoX: 'Foto extra', photoXDel: 'Foto extra borrada', matAdd: 'Nuevo material', matEdit: 'Cambio de material', matDel: 'Material quitado', problem: 'Problema comunicado' };
+export const OP_LABEL = { roomAdd: 'Nueva zona de fotos', roomDel: 'Zona de fotos quitada', roomRen: 'Zona de fotos renombrada', create: 'Nuevo trabajo', patch: 'Cambio en el trabajo', photo: 'Foto', photoDel: 'Foto borrada', photoX: 'Foto extra', photoXDel: 'Foto extra borrada', matAdd: 'Nuevo material', matEdit: 'Cambio de material', matDel: 'Material quitado', problem: 'Problema comunicado', change: 'Cambio firmado por el cliente' };
 
 // ── drafts (forms in progress) and the employee list, per user, wiped on sign-out ──
 export const getDraft = (key) => kvGet(`draft:${me.id}:${key}`);
