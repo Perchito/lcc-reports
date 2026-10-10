@@ -156,7 +156,7 @@ app.post('/api/jobs', requireUser(), async (req, res) => {
   const clientId = req.body?.clientId;
   if (clientId) { // created offline and sent again: hand back the job the first send made
     // only the sender's own job/quote of the same kind (workers can create quotes, so never hand back someone else's)
-    const { rows } = await pool.query(`select data from jobs where data->>'clientId' = $1 and lower(data->>'createdBy') = lower($2) and (data->>'kind' = 'quote') = $3`,
+    const { rows } = await pool.query(`select data from jobs where data->>'clientId' = $1 and lower(data->>'createdBy') = lower($2) and (coalesce(data->>'kind', '') = 'quote') = $3`,
       [String(clientId), req.user.email, quote]);
     if (rows[0]) return res.json(rows[0].data);
   }
