@@ -214,12 +214,19 @@ async function condition(id) {
 async function sign(id) {
   const j = await getQuote(id);
   const list = j.condition || [], s = j.conditionSign, back = isQuote(j) ? `#/quotes/${enc(id)}` : `#/jobs/${enc(id)}/condition`;
-  const thumbs = `<div class="cond-strip">${list.slice(0, 12).map((p) => photoImg(p.path, p.area || '')).join('')}${list.length > 12 ? `<span>+${list.length - 12}</span>` : ''}</div>`;
+  // every photo with its area and note, so the client sees what they sign; tap one for full screen (swipe through them)
+  const signedIds = s?.photoIds;
+  const shown = signedIds ? list.filter((p) => signedIds.includes(p.id)) : list;
+  const thumbs = `<button class="btn btn-secondary" data-view="0">${icon('fullscreen')} Ver las ${shown.length} fotos en grande</button>
+    <div class="cond-grid">${shown.map((p, k) => `<article class="cond-card"><button class="cond-img" data-view="${k}" aria-label="Ver foto ${k + 1} en grande">${photoImg(p.path, `Foto ${k + 1}`)}${p.area ? `<span class="cond-area">${esc(tr(p.area))}</span>` : ''}</button>
+      ${p.note ? `<div class="cond-body"><p>${esc(p.note)}</p></div>` : ''}</article>`).join('')}</div>`;
+  const wireView = (v) => on(v, '[data-view]', 'click', (e, b) => viewer(shown.map((p, k) => ({ src: p.path, label: `${k + 1}. ${p.area ? tr(p.area) : ''}${p.note ? ` — ${p.note}` : ''}` })), Number(b.dataset.view)));
   if (s?.signedAt) return {
     title: 'Firma del cliente', back, live: true,
     body: `<div class="state-card success">${icon('verified')}<h2>Firmado</h2><p>${esc(s.customerName)} · ${fmtDate(s.signedAt)}${s.signedVia === 'link' ? ' · por enlace' : ''}</p></div>
       ${thumbs}<div class="card sig-card" lang="en"><p class="sig-decl">${esc(CONDITION_DECLARATION)}</p><div class="sig-box"><img src="${esc(s.signature)}" alt="Firma de ${esc(s.customerName)}"></div>
       <small class="muted">${(s.photoIds || list).length} fotos firmadas</small></div>`,
+    mount: wireView,
   };
   if (!list.length) return { redirect: isQuote(j) ? `#/quotes/${enc(id)}/condition` : `#/jobs/${enc(id)}/condition` };
   let how = s ? 'link' : 'here', sig = null, saved = false;
@@ -241,6 +248,7 @@ async function sign(id) {
     footer: `<button class="btn btn-primary btn-lg" id="go"></button>`,
     dirty: () => sig?.inked() && !saved,
     mount(v, f) {
+      wireView(v);
       const label = () => { $('#go', f).innerHTML = how === 'link' ? `${icon('send_to_mobile')} ${s ? 'Enviar enlace otra vez' : 'Crear y enviar enlace'}` : `${icon('gesture')} Firmar y guardar`; };
       label();
       sig = signaturePad($('#sig', v));

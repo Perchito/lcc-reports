@@ -292,7 +292,7 @@ dialog.viewer::backdrop { background: #000; }
   padding: calc(var(--sat) + 6px) calc(8px + var(--sar)) 10px calc(16px + var(--sal)); background: linear-gradient(#000a, #0000); }
 .viewer-label { font-weight: 600; font-size: 15px; }
 .viewer-top .icon-btn { background: #ffffff26; }
-.viewer-prev, .viewer-next { position: absolute; z-index: 2; top: 50%; transform: translateY(-50%); background: #ffffff26 !important; color: #fff; }
+.viewer-prev, .viewer-next { position: absolute; z-index: 2; top: 50%; transform: translateY(-50%); background: #000000a6 !important; border: 1px solid #ffffff59 !important; color: #fff; }
 .viewer-prev { left: calc(8px + var(--sal)); } .viewer-next { right: calc(8px + var(--sar)); }
 .viewer-count { position: absolute; bottom: calc(16px + var(--sab)); left: 0; right: 0; text-align: center; font-size: 14px; color: #ffffffcc; }
 
