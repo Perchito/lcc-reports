@@ -2,6 +2,7 @@
 //   App shell (versioned ?v= files, fonts, icons): cache-first; a deploy changes the version, so it
 //     installs a fresh cache and drops the old one.
 //   Page (navigation): network-first, cached shell when offline, so the installed app always opens.
+//     Only / is cached as the shell (not the public /sign/<code> page).
 //   Photos (/api/jobs/:id/files/...): cache-first; their URLs change when a photo is replaced.
 //   Everything else under /api: never cached here. Job data for offline use lives in IndexedDB,
 //     per signed-in user, and is wiped on sign-out (see store.js).
@@ -29,7 +30,7 @@ self.addEventListener('fetch', (e) => {
   const req = e.request, url = new URL(req.url);
   if (req.method !== 'GET' || url.origin !== location.origin) return;
   if (req.mode === 'navigate') {
-    e.respondWith(fetch(req).then((res) => { if (res.ok) caches.open(SHELL).then((c) => c.put('/', res.clone())); return res; })
+    e.respondWith(fetch(req).then((res) => { if (res.ok && url.pathname === '/') caches.open(SHELL).then((c) => c.put('/', res.clone())); return res; })
       .catch(async () => (await caches.match('/')) || Response.error()));
   } else if (/^\/api\/jobs\/[^/]+\/files\//.test(url.pathname)) {
     e.respondWith(cacheFirst(PHOTOS, req));

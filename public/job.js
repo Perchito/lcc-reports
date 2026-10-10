@@ -8,7 +8,7 @@ import {
 import * as store from './store.js?v=__V__';
 import {
   PHOTO_ROOMS, MATERIAL_AREAS, MATERIAL_STATUSES, MATERIAL_UNITS, PROBLEM_CATEGORIES, CHANGE_TYPES, CHANGE_DECLARATION, STATUS,
-  address, progress, nextStep, reviewChecklist, displayStatus, photoCount, materialList, isOpen, roomsOf, slug, MAX_ROOMS, photosOf, extrasOf,
+  address, progress, nextStep, reviewChecklist, changesSummary, isSigned, displayStatus, photoCount, materialList, isOpen, roomsOf, slug, MAX_ROOMS, photosOf, extrasOf,
 } from './jobs.mjs?v=__V__';
 
 const enc = encodeURIComponent;
@@ -27,7 +27,7 @@ const pdfQuery = (o) => PDF_PARTS.filter(([k]) => o[k] === false).map(([k]) => `
 const pdfCache = new Map(); // `${job id}?${parts}` -> { stamp, blob: Promise<Blob> } (dropped when the job changes)
 function fetchPdf(j, o = pdfOpts()) {
   const key = `${j.id}?${pdfQuery(o)}`, hit = pdfCache.get(key);
-  const stamp = JSON.stringify([j.status, j.submittedAt, j.reportGeneratedAt, j.photos, j.materials, j.problems?.length, j.changes?.length]);
+  const stamp = JSON.stringify([j.status, j.submittedAt, j.reportGeneratedAt, j.photos, j.materials, j.problems?.length, j.changes?.map((c) => c.signedAt)]);
   if (hit?.stamp === stamp) return hit.blob;
   const blob = (async () => {
     const res = await fetch(`/api/jobs/${enc(j.id)}/pdf${pdfQuery(o) ? `?${pdfQuery(o)}` : ''}`).catch(() => null);
@@ -128,7 +128,7 @@ async function details(id, q, me) {
         ${step(`${base}/photos/before`, 'photo_camera', 'Fotos antes', p.photos ? `${p.before} / ${p.photos} hechas` : 'Añade zonas de fotos', p.photos && p.before === p.photos ? 'done' : p.before ? 'part' : 'todo')}
         ${step(`${base}/materials`, 'inventory_2', 'Materiales', mats ? `${mats} material${mats === 1 ? '' : 'es'}` : 'Ninguno anotado aún', mats ? 'done' : 'todo')}
         ${step(`${base}/problems`, 'report_problem', 'Problemas', probs ? `${probs} comunicado${probs === 1 ? '' : 's'}` : 'Ninguno comunicado', probs ? 'warn' : 'todo')}
-        ${step(`${base}/changes`, 'gesture', 'Cambios del cliente', chs ? `${chs} firmado${chs === 1 ? '' : 's'}` : 'Ninguno', chs ? 'done' : 'todo')}
+        ${step(`${base}/changes`, 'gesture', 'Cambios del cliente', changesSummary(j), !chs ? 'todo' : (j.changes || []).every(isSigned) ? 'done' : 'part')}
         ${step(`${base}/photos/after`, 'add_a_photo', 'Fotos después', p.photos ? `${p.after} / ${p.photos} hechas` : 'Añade zonas de fotos', p.photos && p.after === p.photos ? 'done' : p.after ? 'part' : 'todo')}
         ${reportDone || j.reportGeneratedAt ? step(`#/reports/${esc(id)}`, 'description', 'Informe', reportDone ? tr(displayStatus(j)) : 'Generado — sin enviar', reportDone ? 'done' : 'part')
           : step(`${base}/review`, 'fact_check', 'Revisar y enviar', 'Comprueba todo y envíalo', 'todo')}
@@ -474,11 +474,23 @@ async function newProblem(id, q) {
 }
 
 // ── customer changes: extra work added / agreed work taken off, signed by the customer ──
-const changeCard = (c) => `<article class="card change-card">
+// signed on the worker's phone, or through a link the customer opens on their own phone (/sign/<code>, public page)
+const signUrl = (c) => `${location.origin}/sign/${c.signCode}`;
+async function shareSignLink(j, c) {
+  const url = signUrl(c), text = `LCC Bathrooms & Services — please review and sign this change to the work at ${address(j)}:`;
+  if (navigator.share) {
+    try { return await navigator.share({ title: 'Change to agreed work', text, url }); } catch (e) { if (e.name === 'AbortError') return; }
+  }
+  try { await navigator.clipboard.writeText(`${text} ${url}`); toast('Enlace copiado — pégalo en WhatsApp, SMS o correo'); }
+  catch { sheet(`<h2>Enlace para firmar</h2><p class="muted">Copia este enlace y envíaselo al cliente:</p><p class="mono" style="word-break:break-all">${esc(url)}</p><div class="sheet-actions"><button class="btn btn-secondary" data-close>Cerrar</button></div>`); }
+}
+const changeCard = (c, open = false) => `<article class="card change-card">
   <div class="row-between"><span class="chg-type ${c.type === 'Remove' ? 'rm' : 'add'}">${icon(c.type === 'Remove' ? 'remove_circle' : 'add_circle')} ${esc(tr(c.type))}</span><small class="muted">${c.signedAt ? fmtDate(c.signedAt) : ''}</small></div>
   <p>${esc(c.description)}</p>
-  <div class="sig-box"><img src="${esc(c.signature)}" alt="Firma de ${esc(c.customerName)}"></div>
-  <small class="muted">Firmado por <b>${esc(c.customerName)}</b> · ${esc(c.createdBy || '')}</small>
+  ${isSigned(c) ? `<div class="sig-box"><img src="${esc(c.signature)}" alt="Firma de ${esc(c.customerName)}"></div>
+  <small class="muted">Firmado por <b>${esc(c.customerName)}</b>${c.signedVia === 'link' ? ' · por enlace' : ''} · ${esc(c.createdBy || '')}</small>`
+  : `<p class="notice warn">${icon('schedule')}Esperando la firma del cliente${c.customerName ? ` (${esc(c.customerName)})` : ''}</p>
+  ${open ? `<div class="btn-row"><button class="btn btn-secondary btn-sm" data-share="${esc(c.id)}">${icon('ios_share')} Enviar enlace</button><button class="btn btn-text btn-sm" data-cancel="${esc(c.id)}">Cancelar</button></div>` : ''}`}
 </article>`;
 
 async function changes(id) {
@@ -486,9 +498,17 @@ async function changes(id) {
   const list = [...(j.changes || [])].reverse();
   return {
     title: 'Cambios del cliente', back: `#/jobs/${enc(id)}`, live: true,
-    body: `<p class="lead">${esc(address(j))}</p>${list.length ? `<div class="card-list">${list.map(changeCard).join('')}</div>`
-      : empty('gesture', 'Ningún cambio firmado', 'Si el cliente pide añadir o quitar algo de lo acordado, apúntalo aquí y que lo firme en tu móvil. Así queda prueba.')}`,
+    body: `<p class="lead">${esc(address(j))}</p>${list.length ? `<div class="card-list">${list.map((c) => changeCard(c, true)).join('')}</div>`
+      : empty('gesture', 'Ningún cambio firmado', 'Si el cliente pide añadir o quitar algo de lo acordado, apúntalo aquí y que lo firme en tu móvil o por un enlace. Así queda prueba.')}`,
     footer: isOpen(j) ? `<a class="btn btn-primary btn-lg" href="#/jobs/${enc(id)}/changes/new">${icon('add')} Nuevo cambio</a>` : '',
+    mount(v) {
+      const find = (cid) => (store.job(id)?.changes || []).find((c) => c.id === cid);
+      on(v, '[data-share]', 'click', (e, b) => { const c = find(b.dataset.share); if (c) shareSignLink(store.job(id), c); });
+      on(v, '[data-cancel]', 'click', async (e, b) => {
+        const c = find(b.dataset.cancel);
+        if (c && await confirmSheet({ title: '¿Cancelar este cambio?', text: `${c.description} — el enlace dejará de funcionar.`, ok: 'Cancelar cambio', danger: true })) { store.cancelChange(id, c.id); toast('Cambio cancelado'); }
+      });
+    },
   };
 }
 
@@ -496,27 +516,39 @@ async function newChange(id) {
   const j = await getJob(id);
   const draftKey = `change:${j.id}`;
   const draft = (await store.getDraft(draftKey)) || {};
-  let type = draft.type || '', inked = false, saved = false;
+  let type = draft.type || '', how = draft.how || 'here', inked = false, saved = false;
   return {
     title: 'Nuevo cambio', back: `#/jobs/${enc(id)}/changes`,
     body: `<p class="lead">${esc(address(j))}</p>
       <fieldset class="field"><legend>¿Qué pide el cliente?</legend><div class="tiles">${CHANGE_TYPES.map((t) => `
         <label class="tile"><input type="radio" name="type" value="${t}" ${t === type ? 'checked' : ''}><span>${icon(t === 'Remove' ? 'remove_circle' : 'add_circle')}${t === 'Remove' ? 'Quitar algo acordado' : 'Añadir algo nuevo'}</span></label>`).join('')}</div></fieldset>
       <label class="field"><span>Describe el cambio</span><textarea id="desc" rows="4" placeholder="Write it in English so the customer can read it — e.g. Fit an extra shelf above the sink.">${esc(draft.description || '')}</textarea></label>
-      <h3 class="section-title">Firma del cliente</h3>
-      <p class="muted">Dale el móvil al cliente para que lea y firme.</p>
-      <div class="card sig-card" lang="en">
-        <p class="sig-decl">${esc(CHANGE_DECLARATION)}</p>
-        <label class="field"><span>Customer name</span><input id="cname" autocomplete="off" value="${esc(draft.customerName ?? j.personName ?? '')}"></label>
-        <div class="field"><span class="field-label">Signature</span><canvas id="sig" class="sig-pad" aria-label="Firma del cliente"></canvas>
-          <button type="button" class="btn btn-text btn-sm" id="clear">${icon('restart_alt')} Borrar firma</button></div>
+      <fieldset class="field"><legend>¿Cómo firma el cliente?</legend><div class="tiles">
+        <label class="tile"><input type="radio" name="how" value="here" ${how === 'here' ? 'checked' : ''}><span>${icon('gesture')}Aquí, en mi móvil</span></label>
+        <label class="tile"><input type="radio" name="how" value="link" ${how === 'link' ? 'checked' : ''}><span>${icon('send_to_mobile')}Enviarle un enlace</span></label></div></fieldset>
+      <div id="here" ${how === 'here' ? '' : 'hidden'}>
+        <h3 class="section-title">Firma del cliente</h3>
+        <p class="muted">Dale el móvil al cliente para que lea y firme.</p>
+        <div class="card sig-card" lang="en">
+          <p class="sig-decl">${esc(CHANGE_DECLARATION)}</p>
+          <label class="field"><span>Customer name</span><input id="cname" autocomplete="off" value="${esc(draft.customerName ?? j.personName ?? '')}"></label>
+          <div class="field"><span class="field-label">Signature</span><canvas id="sig" class="sig-pad" aria-label="Firma del cliente"></canvas>
+            <button type="button" class="btn btn-text btn-sm" id="clear">${icon('restart_alt')} Borrar firma</button></div>
+        </div>
       </div>
+      <p class="muted" id="linkinfo" ${how === 'link' ? '' : 'hidden'}>Se abrirá el menú para compartir (WhatsApp, SMS, correo…). El cliente abre el enlace en su móvil, lo lee y firma. Te avisaremos cuando firme.</p>
       <p class="form-error" id="err" role="alert" hidden></p>`,
-    footer: `<button class="btn btn-primary btn-lg" id="sign">${icon('gesture')} Firmar y guardar</button>`,
+    footer: `<button class="btn btn-primary btn-lg" id="sign">${how === 'link' ? `${icon('send_to_mobile')} Crear y enviar enlace` : `${icon('gesture')} Firmar y guardar`}</button>`,
     dirty: () => inked && !saved,
     mount(v, f) {
-      const save = () => store.saveDraft(draftKey, { type, description: $('#desc', v).value, customerName: $('#cname', v).value });
+      const save = () => store.saveDraft(draftKey, { type, how, description: $('#desc', v).value, customerName: $('#cname', v).value });
       on(v, 'input[name=type]', 'change', (e, el) => { type = el.value; save(); });
+      on(v, 'input[name=how]', 'change', (e, el) => {
+        how = el.value; save();
+        $('#here', v).hidden = how !== 'here'; $('#linkinfo', v).hidden = how !== 'link';
+        $('#sign', f).innerHTML = how === 'link' ? `${icon('send_to_mobile')} Crear y enviar enlace` : `${icon('gesture')} Firmar y guardar`;
+        if (how === 'here') fit(); // the pad had no size while hidden
+      });
       on(v, '#desc', 'input', save); on(v, '#cname', 'input', save);
       // signature pad: plain canvas + pointer events (finger, pen or mouse)
       const pad = $('#sig', v), ctx = pad.getContext('2d');
@@ -535,11 +567,20 @@ async function newChange(id) {
       on(v, '#clear', 'click', fit);
       on(f, '#sign', 'click', () => {
         const description = $('#desc', v).value.trim(), customerName = $('#cname', v).value.trim(), err = $('#err', v);
-        const miss = !type ? 'Elige añadir o quitar.' : !description ? 'Describe el cambio.' : !customerName ? 'Escribe el nombre del cliente.' : !inked ? 'Falta la firma del cliente.' : '';
+        const miss = !type ? 'Elige añadir o quitar.' : !description ? 'Describe el cambio.' : how === 'link' ? ''
+          : !customerName ? 'Escribe el nombre del cliente.' : !inked ? 'Falta la firma del cliente.' : '';
         if (miss) { err.hidden = false; err.textContent = miss; return; }
-        store.addChange(id, { type, description, customerName, signature: pad.toDataURL('image/png'), signedAt: new Date().toISOString() });
         saved = true; store.clearDraft(draftKey);
-        toast(store.sync.reachable ? 'Cambio firmado y guardado' : 'Cambio guardado — se enviará cuando tengas conexión');
+        if (how === 'link') {
+          const signCode = (crypto.randomUUID() + crypto.randomUUID()).replace(/-/g, '').slice(0, 32);
+          const c = { type, description, customerName: j.personName || '', remote: true, signCode };
+          store.addChange(id, c);
+          shareSignLink(j, c); // straight from the tap, so iPhone allows the share sheet
+          if (!store.sync.reachable) toast('Sin conexión: el enlace funcionará en cuanto el cambio llegue al servidor', 'bad');
+        } else {
+          store.addChange(id, { type, description, customerName, signature: pad.toDataURL('image/png'), signedAt: new Date().toISOString() });
+          toast(store.sync.reachable ? 'Cambio firmado y guardado' : 'Cambio guardado — se enviará cuando tengas conexión');
+        }
         location.replace(`#/jobs/${enc(id)}/changes`);
       });
     },

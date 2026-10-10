@@ -6,7 +6,7 @@ import {
   loginBlocked, loginFailed, loginOk,
 } from './lib/auth.mjs';
 import { homeStorage } from './lib/home-storage.mjs';
-import { MATERIAL_AREAS, MAX_ROOMS, STATUS, tr, newJob, cleanPatch, materialItem, problemItem, changeItem, slug, roomsOf, findRoom, cleanRooms, photosOf, dropMain, MAX_EXTRA } from './lib/jobs.mjs';
+import { MATERIAL_AREAS, MAX_ROOMS, STATUS, tr, newJob, cleanPatch, materialItem, problemItem, changeItem, signature, isSigned, CODE_RE, CHANGE_DECLARATION, slug, roomsOf, findRoom, cleanRooms, photosOf, dropMain, MAX_EXTRA } from './lib/jobs.mjs';
 import { reportPdf, pdfFilename } from './lib/pdf.mjs';
 import { sendEmail, emailConfigured } from './lib/mailer.mjs';
 import { pushRoutes, notify } from './lib/push.mjs';
@@ -384,7 +384,53 @@ app.post('/api/jobs/:id/changes', requireUser(), async (req, res) => {
     if (!data.changes.some((c) => c.id === change.id)) { data.changes.push(change); added = true; }
   });
   res.json(job);
-  if (added) notify(pool, { role: 'admin', except: req.user.id }, { title: `Cambio firmado: ${tr(change.type)}`, body: `${address(job)} — ${change.description} (${change.customerName})`, url: `/#/jobs/${job.id}/changes`, tag: `${job.id}:change` });
+  if (added && isSigned(change)) notify(pool, { role: 'admin', except: req.user.id }, { title: `Cambio firmado: ${tr(change.type)}`, body: `${address(job)} — ${change.description} (${change.customerName})`, url: `/#/jobs/${job.id}/changes`, tag: `${job.id}:change` });
+});
+// a change still waiting for its signature can be cancelled (wrong text, customer said no); signed ones stay
+app.delete('/api/jobs/:id/changes/:cid', requireUser(), async (req, res) => {
+  res.json(await withJob(req, (data) => {
+    const c = (data.changes || []).find((x) => x.id === req.params.cid);
+    if (!c) return; // already gone
+    if (isSigned(c)) throw bad(409, 'El cliente ya lo ha firmado — no se puede quitar');
+    data.changes = data.changes.filter((x) => x !== c);
+  }));
+});
+
+// ── signing by link: public, the long random code in the link is the only key ──
+const changeByCode = async (db, code, lock = false) => {
+  if (!CODE_RE.test(code)) throw bad(404, 'This link is not valid');
+  const { rows } = await db.query(`select data from jobs where data->'changes' @> $1::jsonb ${lock ? 'for update' : ''}`, [JSON.stringify([{ signCode: code }])]);
+  const job = rows[0]?.data, change = job?.changes.find((c) => c.signCode === code);
+  if (!change) throw bad(404, 'This link is not valid or the change was cancelled');
+  return { job, change };
+};
+const publicChange = (job, c) => ({ company: 'LCC Bathrooms & Services Ltd', address: address(job), jobId: job.id, type: c.type, description: c.description,
+  declaration: CHANGE_DECLARATION, customerName: c.customerName || job.personName || '', signed: isSigned(c), signedAt: c.signedAt, signature: c.signature });
+app.get('/api/sign/:code', async (req, res) => {
+  const { job, change } = await changeByCode(pool, req.params.code);
+  res.set('cache-control', 'no-store').json(publicChange(job, change));
+});
+app.post('/api/sign/:code', async (req, res) => {
+  let sig;
+  try { sig = signature(req.body || {}); } catch { throw bad(400, 'Please type your name and sign in the box'); }
+  const client = await pool.connect();
+  let job, change, fresh = false;
+  try {
+    await client.query('begin');
+    ({ job, change } = await changeByCode(client, req.params.code, true));
+    if (!isSigned(change)) {
+      Object.assign(change, sig, { signedAt: new Date().toISOString(), signedVia: 'link', signedIp: clientIp(req), signedAgent: String(req.headers['user-agent'] || '').slice(0, 300) });
+      await client.query('update jobs set data = $2 where id = $1', [job.id, job]);
+      fresh = true;
+    }
+    await client.query('commit');
+  } catch (e) { await client.query('rollback').catch(() => {}); throw e; }
+  finally { client.release(); }
+  res.json(publicChange(job, change));
+  if (!fresh) return;
+  const note = { title: `Cambio firmado: ${tr(change.type)}`, body: `${address(job)} — ${change.description} (${change.customerName})`, url: `/#/jobs/${job.id}/changes`, tag: `${job.id}:change` };
+  notify(pool, { role: 'admin' }, note);
+  if (job.assignedTo) notify(pool, { emails: [job.assignedTo], role: 'employee' }, note);
 });
 
 const fileKey = (req) => {
@@ -441,6 +487,8 @@ app.use('/api', (req, res) => res.status(404).json({ error: 'No encontrado' }));
 const VERSION = Date.now().toString(36);
 const stamped = (path) => readFileSync(path, 'utf8').replaceAll('__V__', VERSION);
 const indexHtml = stamped('public/index.html');
+const signHtml = readFileSync('public/sign.html', 'utf8');
+app.get('/sign/:code', (req, res) => res.set('Cache-Control', 'no-cache').type('html').send(signHtml));
 app.get(['/', '/index.html'], (req, res) => res.set('Cache-Control', 'no-cache').type('html').send(indexHtml));
 // every front-end module, stamped so `import './ui.js?v=__V__'` is one shared instance per deploy
 const jsFiles = Object.fromEntries(readdirSync('public').filter((f) => f.endsWith('.js') && f !== 'sw.js').map((f) => [`/${f}`, stamped(`public/${f}`)]));
