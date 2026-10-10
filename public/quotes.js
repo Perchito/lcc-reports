@@ -4,7 +4,7 @@
 // The condition screens also serve jobs made from a quote (#/jobs/<id>/condition).
 import { esc, icon, on, $, $$, toast, sheet, confirmSheet, empty, skeleton, viewer, pickPhoto, photoImg, fmtDate, ago, tr, signaturePad } from './ui.js?v=__V__';
 import * as store from './store.js?v=__V__';
-import { address, isQuote, money, PHOTO_ROOMS, CONDITION_DECLARATION } from './jobs.mjs?v=__V__';
+import { address, isQuote, money, PHOTO_ROOMS, CONDITION_DECLARATION, en, enLine, needsEnglish } from './jobs.mjs?v=__V__';
 import { downloadPdf, sharePdf, shareSignLink } from './job.js?v=__V__';
 import { employees, assignSelect } from './admin.js?v=__V__';
 
@@ -57,7 +57,7 @@ async function quoteForm(id) {
     title: j ? 'Editar presupuesto' : 'Nuevo presupuesto', back: j ? `#/quotes/${enc(id)}` : '#/quotes',
     body: `${FIELDS.map(([title, f]) => `<section class="form-section"><h3 class="section-title">${title}</h3>${f.map(input).join('')}</section>`).join('')}
       <section class="form-section"><h3 class="section-title">Trabajo</h3>
-        <label class="field"><span>Qué hay que hacer <small>(opcional)</small></span><textarea id="work" rows="4" placeholder="Write it in English for the client's PDF — e.g. Strip out and refit the main bathroom.">${esc(val('work'))}</textarea></label>
+        <label class="field"><span>Qué hay que hacer <small>(opcional)</small></span><textarea id="work" rows="4" placeholder="p. ej. Quitar y montar el baño principal nuevo. Se traduce al inglés en el PDF.">${esc(val('work'))}</textarea></label>
         <label class="field"><span>Precio en £ <small>(opcional)</small></span><input id="price" inputmode="decimal" placeholder="p. ej. 2500" value="${esc(val('price') ?? '')}"></label></section>
       <p class="form-error" id="err" role="alert" hidden></p>`,
     footer: `<button class="btn btn-primary btn-lg" id="save">${icon(j ? 'check' : 'arrow_forward')} ${j ? 'Guardar' : 'Crear y hacer fotos'}</button>`,
@@ -108,6 +108,7 @@ async function detail(id, q, me) {
       </section>
       <section class="card info-card"><h3 class="label">Trabajo</h3>
         <p class="pre">${j.work ? esc(j.work) : '<span class="muted">Sin descripción todavía</span>'}</p>
+        ${enLine(j, 'work') ? `<p class="pre en-line"><b>EN</b> ${esc(enLine(j, 'work'))}</p>` : ''}
         ${j.price != null ? `<p class="big-price">${esc(money(j.price))}</p>` : ''}
         ${done ? '' : `<a class="btn btn-text btn-sm" href="${base}/edit">${icon('edit')} Editar datos, trabajo y precio</a>`}</section>
       ${j.personPhone || j.personEmail ? `<section class="card info-card"><h3 class="label">Cliente</h3><div class="btn-row">
@@ -151,7 +152,7 @@ async function convert(j, me) {
 const AREAS = [...PHOTO_ROOMS.map((r) => r.replace(/ \(Side \d\)$/, '')).filter((r, i, a) => a.indexOf(r) === i), 'Hallway', 'Stairs', 'Garden', 'Whole property'];
 const areaPick = new Map(); // job id -> the area new photos go under (kept while the app is open)
 function noteSheet(j, p) {
-  const d = sheet(`<h2>Nota de la foto</h2><p class="muted">¿Qué se ve? p. ej. “Azulejo roto junto a la bañera”. Escríbelo en inglés si puedes — sale en el PDF del cliente.</p>
+  const d = sheet(`<h2>Nota de la foto</h2><p class="muted">¿Qué se ve? p. ej. “Azulejo roto junto a la bañera”. Escribe en español si quieres — el cliente lo ve en inglés.</p>
     <label class="field"><span>Nota</span><textarea id="note" rows="3">${esc(p.note || '')}</textarea></label>
     <div class="sheet-actions"><button class="btn btn-primary" data-save>Guardar</button><button class="btn btn-secondary" data-close>${p.note ? 'Cancelar' : 'Sin nota'}</button></div>`);
   const t = $('#note', d); setTimeout(() => t.focus(), 50);
@@ -175,7 +176,7 @@ async function condition(id) {
       ${list.length ? `<div class="cond-grid">${list.map((p, k) => `<article class="cond-card">
           <button class="cond-img" data-view="${k}" aria-label="Ver foto ${k + 1}">${photoImg(p.path, `Foto ${k + 1}`)}${p.area ? `<span class="cond-area">${esc(tr(p.area))}</span>` : ''}
             ${store.conditionPending(id, p.id) ? `<span class="cond-wait">${icon('schedule')}</span>` : ''}</button>
-          <div class="cond-body">${p.note ? `<p>${esc(p.note)}</p>` : ''}
+          <div class="cond-body">${p.note ? `<p>${esc(p.note)}</p>` : ''}${enLine(p, 'note') ? `<p class="en-line"><b>EN</b> ${esc(enLine(p, 'note'))}</p>` : ''}
             <small class="muted">${k + 1} · ${p.at ? ago(p.at) : ''}</small>
             ${locked || closed ? '' : `<div class="cond-actions"><button class="btn btn-text btn-sm" data-note="${esc(p.id)}">${icon('edit_note')} ${p.note ? 'Nota' : 'Añadir nota'}</button>
               <button class="icon-btn danger" data-del="${esc(p.id)}" aria-label="Borrar foto ${k + 1}">${icon('delete')}</button></div>`}</div></article>`).join('')}</div>`
@@ -217,10 +218,16 @@ async function sign(id) {
   // every photo with its area and note, so the client sees what they sign; tap one for full screen (swipe through them)
   const signedIds = s?.photoIds;
   const shown = signedIds ? list.filter((p) => signedIds.includes(p.id)) : list;
+  // the client reads English: notes not translated yet are translated now (when there is signal)
+  const live = {};
+  if (!s?.signedAt && store.sync.reachable) await Promise.all(shown.filter((p) => needsEnglish(p, 'note')).map(async (p) => {
+    try { live[p.id] = (await store.api('/api/translate', { method: 'POST', body: { text: p.note } })).en; } catch {}
+  }));
+  const note = (p) => s?.signedNotes?.[p.id] ?? live[p.id] ?? en(p, 'note');
   const thumbs = `<button class="btn btn-secondary" data-view="0">${icon('fullscreen')} Ver las ${shown.length} fotos en grande</button>
     <div class="cond-grid">${shown.map((p, k) => `<article class="cond-card"><button class="cond-img" data-view="${k}" aria-label="Ver foto ${k + 1} en grande">${photoImg(p.path, `Foto ${k + 1}`)}${p.area ? `<span class="cond-area">${esc(tr(p.area))}</span>` : ''}</button>
-      ${p.note ? `<div class="cond-body"><p>${esc(p.note)}</p></div>` : ''}</article>`).join('')}</div>`;
-  const wireView = (v) => on(v, '[data-view]', 'click', (e, b) => viewer(shown.map((p, k) => ({ src: p.path, label: `${k + 1}. ${p.area ? tr(p.area) : ''}${p.note ? ` — ${p.note}` : ''}` })), Number(b.dataset.view)));
+      ${note(p) ? `<div class="cond-body" lang="en"><p>${esc(note(p))}</p></div>` : ''}</article>`).join('')}</div>`;
+  const wireView = (v) => on(v, '[data-view]', 'click', (e, b) => viewer(shown.map((p, k) => ({ src: p.path, label: `${k + 1}. ${p.area ? tr(p.area) : ''}${note(p) ? ` — ${note(p)}` : ''}` })), Number(b.dataset.view)));
   if (s?.signedAt) return {
     title: 'Firma del cliente', back, live: true,
     body: `<div class="state-card success">${icon('verified')}<h2>Firmado</h2><p>${esc(s.customerName)} · ${fmtDate(s.signedAt)}${s.signedVia === 'link' ? ' · por enlace' : ''}</p></div>
@@ -270,7 +277,7 @@ async function sign(id) {
         const customerName = $('#cname', v).value.trim(), err = $('#err', v);
         const miss = !customerName ? 'Escribe el nombre del cliente.' : !sig.inked() ? 'Falta la firma del cliente.' : '';
         if (miss) { err.hidden = false; err.textContent = miss; return; }
-        store.signCondition(id, { customerName, signature: sig.png() });
+        store.signCondition(id, { customerName, signature: sig.png(), signedNotes: Object.fromEntries(shown.filter((p) => p.note).map((p) => [p.id, note(p)])) });
         saved = true;
         toast(store.sync.reachable ? 'Firmado y guardado' : 'Firma guardada — se enviará cuando tengas conexión');
         location.replace(back);

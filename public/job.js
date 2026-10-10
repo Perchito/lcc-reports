@@ -8,7 +8,7 @@ import {
 import * as store from './store.js?v=__V__';
 import {
   PHOTO_ROOMS, MATERIAL_AREAS, MATERIAL_STATUSES, MATERIAL_UNITS, PROBLEM_CATEGORIES, CHANGE_TYPES, CHANGE_DECLARATION, STATUS,
-  address, progress, nextStep, reviewChecklist, changesSummary, isSigned, money, displayStatus, photoCount, materialList, isOpen, roomsOf, slug, MAX_ROOMS, photosOf, extrasOf,
+  address, progress, nextStep, reviewChecklist, changesSummary, isSigned, money, en, enLine, displayStatus, photoCount, materialList, isOpen, roomsOf, slug, MAX_ROOMS, photosOf, extrasOf,
 } from './jobs.mjs?v=__V__';
 
 const enc = encodeURIComponent;
@@ -490,6 +490,7 @@ export async function shareSignLink(j, c, what = 'this change to the work') {
 const changeCard = (c, open = false) => `<article class="card change-card">
   <div class="row-between"><span class="chg-type ${c.type === 'Remove' ? 'rm' : 'add'}">${icon(c.type === 'Remove' ? 'remove_circle' : 'add_circle')} ${esc(tr(c.type))}</span><small class="muted">${c.signedAt ? fmtDate(c.signedAt) : ''}</small></div>
   <p>${esc(c.description)}</p>
+  ${(c.signedDescription ?? enLine(c, 'description')) && (c.signedDescription ?? en(c, 'description')) !== c.description ? `<p class="en-line"><b>EN</b> ${esc(c.signedDescription ?? en(c, 'description'))}</p>` : ''}
   ${isSigned(c) ? `<div class="sig-box"><img src="${esc(c.signature)}" alt="Firma de ${esc(c.customerName)}"></div>
   <small class="muted">Firmado por <b>${esc(c.customerName)}</b>${c.signedVia === 'link' ? ' · por enlace' : ''} · ${esc(c.createdBy || '')}</small>`
   : `<p class="notice warn">${icon('schedule')}Esperando la firma del cliente${c.customerName ? ` (${esc(c.customerName)})` : ''}</p>
@@ -525,7 +526,7 @@ async function newChange(id) {
     body: `<p class="lead">${esc(address(j))}</p>
       <fieldset class="field"><legend>¿Qué pide el cliente?</legend><div class="tiles">${CHANGE_TYPES.map((t) => `
         <label class="tile"><input type="radio" name="type" value="${t}" ${t === type ? 'checked' : ''}><span>${icon(t === 'Remove' ? 'remove_circle' : 'add_circle')}${t === 'Remove' ? 'Quitar algo acordado' : 'Añadir algo nuevo'}</span></label>`).join('')}</div></fieldset>
-      <label class="field"><span>Describe el cambio</span><textarea id="desc" rows="4" placeholder="Write it in English so the customer can read it — e.g. Fit an extra shelf above the sink.">${esc(draft.description || '')}</textarea></label>
+      <label class="field"><span>Describe el cambio</span><textarea id="desc" rows="4" placeholder="p. ej. Poner una balda extra encima del lavabo. Se traduce al inglés para el cliente.">${esc(draft.description || '')}</textarea></label>
       <fieldset class="field"><legend>¿Cómo firma el cliente?</legend><div class="tiles">
         <label class="tile"><input type="radio" name="how" value="here" ${how === 'here' ? 'checked' : ''}><span>${icon('gesture')}Aquí, en mi móvil</span></label>
         <label class="tile"><input type="radio" name="how" value="link" ${how === 'link' ? 'checked' : ''}><span>${icon('send_to_mobile')}Enviarle un enlace</span></label></div></fieldset>
@@ -533,6 +534,7 @@ async function newChange(id) {
         <h3 class="section-title">Firma del cliente</h3>
         <p class="muted">Dale el móvil al cliente para que lea y firme.</p>
         <div class="card sig-card" lang="en">
+          <div class="en-preview" id="enp" hidden><small>Change requested</small><p></p></div>
           <p class="sig-decl">${esc(CHANGE_DECLARATION)}</p>
           <label class="field"><span>Customer name</span><input id="cname" autocomplete="off" value="${esc(draft.customerName ?? j.personName ?? '')}"></label>
           <div class="field"><span class="field-label">Signature</span><canvas id="sig" class="sig-pad" aria-label="Firma del cliente"></canvas>
@@ -552,7 +554,23 @@ async function newChange(id) {
         $('#sign', f).innerHTML = how === 'link' ? `${icon('send_to_mobile')} Crear y enviar enlace` : `${icon('gesture')} Firmar y guardar`;
         if (how === 'here') sig.fit(); // the pad had no size while hidden
       });
-      on(v, '#desc', 'input', save); on(v, '#cname', 'input', save);
+      on(v, '#desc', 'input', () => { save(); preview(); }); on(v, '#cname', 'input', save);
+      // the client reads English: translate what the worker wrote (needs signal; without it the PDF gets it later)
+      let shown = null, timer;
+      const preview = () => {
+        clearTimeout(timer); shown = null;
+        const text = $('#desc', v).value.trim(), box = $('#enp', v);
+        if (!text) { box.hidden = true; return; }
+        timer = setTimeout(async () => {
+          try {
+            const { en: english } = await store.api('/api/translate', { method: 'POST', body: { text } });
+            if ($('#desc', v)?.value.trim() !== text) return; // changed meanwhile
+            shown = { text, english };
+            $('p', box).textContent = english; box.hidden = false;
+          } catch { box.hidden = true; }
+        }, 900);
+      };
+      preview();
       sig = signaturePad($('#sig', v));
       on(v, '#clear', 'click', sig.fit);
       on(f, '#sign', 'click', () => {
@@ -568,7 +586,7 @@ async function newChange(id) {
           shareSignLink(j, c); // straight from the tap, so iPhone allows the share sheet
           if (!store.sync.reachable) toast('Sin conexión: el enlace funcionará en cuanto el cambio llegue al servidor', 'bad');
         } else {
-          store.addChange(id, { type, description, customerName, signature: sig.png(), signedAt: new Date().toISOString() });
+          store.addChange(id, { type, description, customerName, signature: sig.png(), signedAt: new Date().toISOString(), ...(shown?.text === description ? { signedDescription: shown.english } : {}) });
           toast(store.sync.reachable ? 'Cambio firmado y guardado' : 'Cambio guardado — se enviará cuando tengas conexión');
         }
         location.replace(`#/jobs/${enc(id)}/changes`);

@@ -11,6 +11,7 @@ import { reportPdf, pdfFilename } from './lib/pdf.mjs';
 import { sendEmail, emailConfigured } from './lib/mailer.mjs';
 import { pushRoutes, notify } from './lib/push.mjs';
 import { address } from './lib/jobs.mjs';
+import { toEnglish, textsOf, en, needsEnglish } from './lib/translate.mjs';
 
 const { DATABASE_URL, PORT = 4630 } = process.env;
 if (!DATABASE_URL) throw new Error('DATABASE_URL is required');
@@ -170,6 +171,7 @@ async function insertNumbered(prefix, make) {
     const job = make(`${prefix}-${year}-${String(n).padStart(5, '0')}`);
     try {
       await pool.query('insert into jobs (id, data) values ($1, $2)', [job.id, job]);
+      englishSoon(job.id);
       if (job.assignedTo) notify(pool, { emails: [job.assignedTo] }, { title: 'Nuevo trabajo asignado', body: address(job), url: `/#/jobs/${job.id}`, tag: job.id });
       return job;
     } catch (e) { if (e.code !== '23505') throw e; } // two at once: take the next number
@@ -182,6 +184,7 @@ async function insertNumbered(prefix, make) {
 async function update(req, sql, params) {
   await loadJob(req); // access check
   const { rows } = await pool.query(`update jobs set data = ${sql} where id = $1 returning data`, [req.params.id, ...params]);
+  englishSoon(req.params.id);
   return rows[0].data;
 }
 
@@ -208,6 +211,45 @@ app.patch('/api/jobs/:id', requireUser(), async (req, res) => {
   if (job.status === STATUS.adminReviewed && before.status !== STATUS.adminReviewed && job.assignedTo) notify(pool, { emails: [job.assignedTo], except: req.user.id }, { ...where, title: 'Informe revisado', url: `/#/reports/${job.id}` });
 });
 
+// ── English copies of what workers write (lib/translate.mjs): filled in the background a moment after each save ──
+const englishTimers = new Map();
+function englishSoon(id) {
+  clearTimeout(englishTimers.get(id));
+  englishTimers.set(id, setTimeout(() => { englishTimers.delete(id); fillEnglish(id).catch((e) => console.warn('[translate]', id, e.message)); }, 1500));
+}
+async function fillEnglish(id) {
+  const { rows } = await pool.query('select data from jobs where id = $1', [id]);
+  if (!rows[0]) return;
+  const todo = [...new Set(textsOf(rows[0].data).filter(([o, f]) => needsEnglish(o, f)).map(([o, f]) => o[f]))];
+  if (!todo.length) return;
+  const done = new Map((await Promise.all(todo.map(async (t) => [t, await toEnglish(t)]))).filter(([, e]) => e));
+  if (!done.size) return;
+  const client = await pool.connect();
+  try { // apply under the row lock, only where the text is still the one that was translated
+    await client.query('begin');
+    const { rows: [row] } = await client.query('select data from jobs where id = $1 for update', [id]);
+    let n = 0;
+    for (const [o, f] of textsOf(row.data)) if (needsEnglish(o, f) && done.has(o[f])) { o[`${f}En`] = done.get(o[f]); o[`${f}EnOf`] = o[f]; n++; }
+    if (n) await client.query('update jobs set data = $2 where id = $1', [id, row.data]);
+    await client.query('commit');
+  } catch (e) { await client.query('rollback').catch(() => {}); throw e; }
+  finally { client.release(); }
+}
+// on start: give older jobs their English copies, one at a time
+setTimeout(async () => {
+  const { rows } = await pool.query('select id from jobs order by created_at desc');
+  for (const { id } of rows) await fillEnglish(id).catch((e) => console.warn('[translate]', id, e.message));
+}, 30_000);
+// the app shows the client an English preview while a worker writes (signing in person)
+app.post('/api/translate', requireUser(), async (req, res) => {
+  const text = String(req.body?.text || '').slice(0, 2000);
+  const english = await toEnglish(text);
+  if (english === null) throw bad(503, 'La traducción no está disponible ahora mismo');
+  res.json({ en: english });
+});
+// English for a client-facing page right now: the stored copy, else translate on the spot (falls back to the original)
+const englishNow = async (o, f) => (needsEnglish(o, f) ? (await toEnglish(o[f])) ?? o[f] : en(o, f));
+
 // read-modify-write of one job under a row lock: for edits inside lists (materials, problems)
 async function withJob(req, fn) {
   await loadJob(req); // access check
@@ -219,6 +261,7 @@ async function withJob(req, fn) {
     fn(data);
     await client.query('update jobs set data = $2 where id = $1', [req.params.id, data]);
     await client.query('commit');
+    englishSoon(req.params.id);
     return data;
   } catch (e) { await client.query('rollback').catch(() => {}); throw e; }
   finally { client.release(); }
@@ -449,7 +492,8 @@ app.post('/api/jobs/:id/condition-sign', requireUser(), async (req, res) => {
   const b = req.body || {};
   const next = b.remote
     ? { customerName: String(b.customerName || '').trim().slice(0, 120), signature: null, signedAt: null, signCode: CODE_RE.test(b.signCode || '') ? b.signCode : newCode(), sentBy: req.user.email, sentAt: new Date().toISOString() }
-    : { ...signature(b), signedAt: new Date().toISOString(), signedVia: 'device', witnessedBy: req.user.email };
+    : { ...signature(b), signedAt: new Date().toISOString(), signedVia: 'device', witnessedBy: req.user.email,
+        ...(b.signedNotes && typeof b.signedNotes === 'object' ? { signedNotes: Object.fromEntries(Object.entries(b.signedNotes).slice(0, 300).map(([k, v]) => [String(k).slice(0, 32), String(v ?? '').slice(0, 500)])) } : {}) };
   let fresh = false;
   const job = await withJob(req, (data) => {
     if (conditionLocked(data)) return; // already signed (or a resend)
@@ -504,15 +548,24 @@ const byCode = async (db, code, lock = false) => {
   if (!change) throw bad(404, 'This link is not valid or was cancelled');
   return { job, target: change, kind: 'change' };
 };
-const publicView = ({ job, target: c, kind }, code) => ({
-  kind, company: 'LCC Bathrooms & Services Ltd', address: address(job), jobId: job.id, customerName: c.customerName || job.personName || '',
-  signed: !!c.signedAt, signedAt: c.signedAt, signature: c.signature,
-  ...(kind === 'change' ? { type: c.type, description: c.description, declaration: CHANGE_DECLARATION }
-    : { declaration: CONDITION_DECLARATION, photos: (job.condition || []).filter((p) => !c.photoIds || c.photoIds.includes(p.id))
-      .map((p) => ({ area: p.area, note: p.note, at: p.at, url: `/api/sign/${code}/photo/${p.id}` })) }),
-});
+// what the client reads, in English; once signed, exactly the text they signed
+const englishTexts = async ({ job, target: c, kind }) => {
+  if (kind === 'change') return { description: c.signedDescription ?? (await englishNow(c, 'description')) };
+  const photos = (job.condition || []).filter((p) => !c.photoIds || c.photoIds.includes(p.id));
+  return { notes: Object.fromEntries(await Promise.all(photos.map(async (p) => [p.id, c.signedNotes?.[p.id] ?? (await englishNow(p, 'note'))]))) };
+};
+const publicView = async (found, code) => {
+  const { job, target: c, kind } = found, t = await englishTexts(found);
+  return {
+    kind, company: 'LCC Bathrooms & Services Ltd', address: address(job), jobId: job.id, customerName: c.customerName || job.personName || '',
+    signed: !!c.signedAt, signedAt: c.signedAt, signature: c.signature,
+    ...(kind === 'change' ? { type: c.type, description: t.description, declaration: CHANGE_DECLARATION }
+      : { declaration: CONDITION_DECLARATION, photos: (job.condition || []).filter((p) => !c.photoIds || c.photoIds.includes(p.id))
+        .map((p) => ({ area: p.area, note: t.notes[p.id], at: p.at, url: `/api/sign/${code}/photo/${p.id}` })) }),
+  };
+};
 app.get('/api/sign/:code', async (req, res) => {
-  res.set('cache-control', 'no-store').json(publicView(await byCode(pool, req.params.code), req.params.code));
+  res.set('cache-control', 'no-store').json(await publicView(await byCode(pool, req.params.code), req.params.code));
 });
 app.get('/api/sign/:code/photo/:xid', async (req, res) => {
   const { job, kind } = await byCode(pool, req.params.code);
@@ -524,6 +577,7 @@ app.get('/api/sign/:code/photo/:xid', async (req, res) => {
 app.post('/api/sign/:code', async (req, res) => {
   let sig;
   try { sig = signature(req.body || {}); } catch { throw bad(400, 'Please type your name and sign in the box'); }
+  const shown = await englishTexts(await byCode(pool, req.params.code)); // translate before taking the lock
   const client = await pool.connect();
   let found, fresh = false;
   try {
@@ -532,7 +586,7 @@ app.post('/api/sign/:code', async (req, res) => {
     const { job, target, kind } = found;
     if (!target.signedAt) {
       if (kind === 'condition' && !job.condition?.length) throw bad(400, 'There are no photos to sign yet');
-      Object.assign(target, sig, { signedAt: new Date().toISOString(), signedVia: 'link', signedIp: clientIp(req), signedAgent: String(req.headers['user-agent'] || '').slice(0, 300),
+      Object.assign(target, sig, kind === 'change' ? { signedDescription: target.signedDescription ?? shown.description } : { signedNotes: shown.notes }, { signedAt: new Date().toISOString(), signedVia: 'link', signedIp: clientIp(req), signedAgent: String(req.headers['user-agent'] || '').slice(0, 300),
         ...(kind === 'condition' ? { photoIds: job.condition.map((p) => p.id) } : {}) });
       await client.query('update jobs set data = $2 where id = $1', [job.id, job]);
       fresh = true;
@@ -540,7 +594,7 @@ app.post('/api/sign/:code', async (req, res) => {
     await client.query('commit');
   } catch (e) { await client.query('rollback').catch(() => {}); throw e; }
   finally { client.release(); }
-  res.json(publicView(found, req.params.code));
+  res.json(await publicView(found, req.params.code));
   if (!fresh) return;
   const { job, target, kind } = found;
   const note = kind === 'change'

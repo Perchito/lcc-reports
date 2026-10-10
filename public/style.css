@@ -651,3 +651,10 @@ dialog.viewer::backdrop { background: #000; }
 .cond-strip span { display: grid; place-items: center; background: var(--line); font-weight: 700; }
 .cond-strip-card { display: block; text-decoration: none; color: inherit; }
 @media (max-width: 360px) { .bottom-nav a { font-size: 10px; } }
+
+/* English copy of what a worker wrote (what the client reads) */
+.en-line { margin: 4px 0 0; font-size: 13px; color: var(--muted); }
+.en-line b { font-size: 10px; letter-spacing: .06em; padding: 1px 5px; border-radius: 4px; background: var(--line); color: var(--ink-2); margin-right: 4px; }
+.en-preview { margin: 0 0 12px; padding: 10px 12px; border-radius: var(--radius-sm); background: var(--brand-soft); }
+.en-preview small { display: block; font-weight: 700; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--brand-ink); }
+.en-preview p { margin: 4px 0 0; white-space: pre-wrap; }
