@@ -11,7 +11,7 @@ import { reportPdf, pdfFilename } from './lib/pdf.mjs';
 import { sendEmail, emailConfigured } from './lib/mailer.mjs';
 import { pushRoutes, notify } from './lib/push.mjs';
 import { address } from './lib/jobs.mjs';
-import { toEnglish, textsOf, en, needsEnglish } from './lib/translate.mjs';
+import { toEnglish, toEnglishMany, textsOf, en, needsEnglish } from './lib/translate.mjs';
 
 const { DATABASE_URL, PORT = 4630 } = process.env;
 if (!DATABASE_URL) throw new Error('DATABASE_URL is required');
@@ -222,14 +222,17 @@ async function fillEnglish(id) {
   if (!rows[0]) return;
   const todo = [...new Set(textsOf(rows[0].data).filter(([o, f]) => needsEnglish(o, f)).map(([o, f]) => o[f]))];
   if (!todo.length) return;
-  const done = new Map((await Promise.all(todo.map(async (t) => [t, await toEnglish(t)]))).filter(([, e]) => e));
+  const done = await toEnglishMany(todo); // one model call for the whole job
   if (!done.size) return;
   const client = await pool.connect();
   try { // apply under the row lock, only where the text is still the one that was translated
     await client.query('begin');
     const { rows: [row] } = await client.query('select data from jobs where id = $1 for update', [id]);
     let n = 0;
-    for (const [o, f] of textsOf(row.data)) if (needsEnglish(o, f) && done.has(o[f])) { o[`${f}En`] = done.get(o[f]); o[`${f}EnOf`] = o[f]; n++; }
+    for (const [o, f] of textsOf(row.data)) {
+      const e = needsEnglish(o, f) && done.get(String(o[f]).trim());
+      if (e) { o[`${f}En`] = e; o[`${f}EnOf`] = o[f]; n++; }
+    }
     if (n) await client.query('update jobs set data = $2 where id = $1', [id, row.data]);
     await client.query('commit');
   } catch (e) { await client.query('rollback').catch(() => {}); throw e; }
@@ -241,9 +244,14 @@ setTimeout(async () => {
   for (const { id } of rows) await fillEnglish(id).catch((e) => console.warn('[translate]', id, e.message));
 }, 30_000);
 // the app shows the client an English preview while a worker writes (signing in person)
+// { text } -> { en } or, several at once (one model call), { texts: [] } -> { en: [] } (null where it failed)
 app.post('/api/translate', requireUser(), async (req, res) => {
-  const text = String(req.body?.text || '').slice(0, 2000);
-  const english = await toEnglish(text);
+  if (Array.isArray(req.body?.texts)) {
+    const texts = req.body.texts.slice(0, 100).map((t) => String(t || '').slice(0, 2000));
+    const got = await toEnglishMany(texts);
+    return res.json({ en: texts.map((t) => (t.trim() ? got.get(t.trim()) ?? null : '')) });
+  }
+  const english = await toEnglish(String(req.body?.text || '').slice(0, 2000));
   if (english === null) throw bad(503, 'La traducción no está disponible ahora mismo');
   res.json({ en: english });
 });
@@ -552,7 +560,8 @@ const byCode = async (db, code, lock = false) => {
 const englishTexts = async ({ job, target: c, kind }) => {
   if (kind === 'change') return { description: c.signedDescription ?? (await englishNow(c, 'description')) };
   const photos = (job.condition || []).filter((p) => !c.photoIds || c.photoIds.includes(p.id));
-  return { notes: Object.fromEntries(await Promise.all(photos.map(async (p) => [p.id, c.signedNotes?.[p.id] ?? (await englishNow(p, 'note'))]))) };
+  const fresh = await toEnglishMany(photos.filter((p) => !c.signedNotes?.[p.id] && needsEnglish(p, 'note')).map((p) => p.note.trim())); // one call
+  return { notes: Object.fromEntries(photos.map((p) => [p.id, c.signedNotes?.[p.id] ?? fresh.get(String(p.note || '').trim()) ?? en(p, 'note')])) };
 };
 const publicView = async (found, code) => {
   const { job, target: c, kind } = found, t = await englishTexts(found);

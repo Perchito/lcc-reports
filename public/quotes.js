@@ -220,9 +220,11 @@ async function sign(id) {
   const shown = signedIds ? list.filter((p) => signedIds.includes(p.id)) : list;
   // the client reads English: notes not translated yet are translated now (when there is signal)
   const live = {};
-  if (!s?.signedAt && store.sync.reachable) await Promise.all(shown.filter((p) => needsEnglish(p, 'note')).map(async (p) => {
-    try { live[p.id] = (await store.api('/api/translate', { method: 'POST', body: { text: p.note } })).en; } catch {}
-  }));
+  const missing = !s?.signedAt && store.sync.reachable ? shown.filter((p) => needsEnglish(p, 'note')) : [];
+  if (missing.length) try { // one request, one model call
+    const { en: list } = await store.api('/api/translate', { method: 'POST', body: { texts: missing.map((p) => p.note) } });
+    missing.forEach((p, k) => { if (list[k]) live[p.id] = list[k]; });
+  } catch {}
   const note = (p) => s?.signedNotes?.[p.id] ?? live[p.id] ?? en(p, 'note');
   const thumbs = `<button class="btn btn-secondary" data-view="0">${icon('fullscreen')} Ver las ${shown.length} fotos en grande</button>
     <div class="cond-grid">${shown.map((p, k) => `<article class="cond-card"><button class="cond-img" data-view="${k}" aria-label="Ver foto ${k + 1} en grande">${photoImg(p.path, `Foto ${k + 1}`)}${p.area ? `<span class="cond-area">${esc(tr(p.area))}</span>` : ''}</button>
