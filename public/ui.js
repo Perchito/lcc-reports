@@ -82,12 +82,15 @@ export function sheet(html, { wire, className = '' } = {}) {
   d.addEventListener('close', () => setTimeout(() => d.remove(), 200));
   d.addEventListener('click', (e) => { if (e.target === d) d.close(); }); // tap outside
   $$('[data-close]', d).forEach((b) => b.addEventListener('click', () => d.close()));
-  // drag the grab handle down to dismiss
-  const grab = $('.sheet-grab', d);
+  // drag down to dismiss: from the handle, or from anywhere while the sheet is scrolled to the top
+  // (not from fields, the signature pad or inner scrollers, which need their own drags)
   let y0 = null;
-  grab.addEventListener('touchstart', (e) => { y0 = e.touches[0].clientY; }, { passive: true });
-  grab.addEventListener('touchmove', (e) => { if (y0 != null) d.style.transform = `translateY(${Math.max(0, e.touches[0].clientY - y0)}px)`; }, { passive: true });
-  grab.addEventListener('touchend', (e) => { if (y0 != null && e.changedTouches[0].clientY - y0 > 80) d.close(); d.style.transform = ''; y0 = null; });
+  d.addEventListener('touchstart', (e) => {
+    const t = e.target;
+    y0 = t.closest('.sheet-grab') || (d.scrollTop <= 0 && !t.closest('input, textarea, select, canvas, .spots-list, .cond-strip, .chips')) ? e.touches[0].clientY : null;
+  }, { passive: true });
+  d.addEventListener('touchmove', (e) => { if (y0 != null) d.style.transform = `translateY(${Math.max(0, e.touches[0].clientY - y0)}px)`; }, { passive: true });
+  d.addEventListener('touchend', (e) => { if (y0 != null && e.changedTouches[0].clientY - y0 > 80) d.close(); d.style.transform = ''; y0 = null; });
   d.showModal();
   wire?.(d);
   return d;

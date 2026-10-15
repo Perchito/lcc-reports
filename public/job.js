@@ -48,7 +48,8 @@ export async function downloadPdf(j, o) {
   if (navigator.canShare?.({ files: [file] }) && matchMedia('(pointer: coarse)').matches) {
     const share = () => navigator.share({ files: [file], title: pdfName(j) });
     try { return await share(); } catch (e) { if (e.name === 'AbortError') return; }
-    // the tap "expired" while the PDF was being made: one more tap opens the share sheet
+    // the tap "expired" while the PDF was being made: one more tap opens the share sheet (in place of the options sheet: one sheet at a time)
+    document.querySelectorAll('dialog.sheet[open]').forEach((x) => x.close());
     const d = sheet(`<h2>PDF listo</h2><p class="muted">${esc(pdfName(j))} · ${(blob.size / 1048576).toFixed(1)} MB. Toca Guardar PDF y elige “Guardar en Archivos”.</p>
       <div class="sheet-actions"><button class="btn btn-primary" data-save>${icon('download')} Guardar PDF</button><button class="btn btn-secondary" data-close>Cancelar</button></div>`);
     $('[data-save]', d).onclick = async () => { try { await share(); d.close(); } catch (e) { if (e.name === 'AbortError') d.close(); else toast('No se pudo abrir el menú de compartir en este móvil', 'bad'); } };
@@ -115,7 +116,7 @@ async function details(id, q, me) {
   else if (ns.step !== 'start') footer = `<a class="btn btn-primary btn-lg" href="${base}/${ns.step}">${ns.step === 'review' ? icon('fact_check') : icon('photo_camera')} ${p.pct > 0 ? 'Continuar: ' : ''}${ns.label} ${icon('arrow_forward')}</a>`;
 
   return {
-    title: 'Detalles del trabajo', back: '#/jobs', live: true, side: 'jobs',
+    title: line1(j), back: '#/jobs', live: true, side: 'jobs',
     actions: admin ? `<button class="icon-btn" id="menu" aria-label="Opciones del trabajo">${icon('more_horiz')}</button>` : '',
     body: `
       <section class="job-hero">${chip(j)}<h2>${esc(line1(j))}</h2><p>${esc(line2(j))}</p>

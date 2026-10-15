@@ -1,7 +1,7 @@
 // App shell + router. Every screen returns a description
 //   { title, back, tab, actions, body, footer, live, mount(view), dirty() }
 // and the shell draws it the same way: safe-area header, content, optional fixed
-// bottom action, bottom tabs on phones (Home · Jobs · Reports · Quotes · More) or a sidebar on desktop.
+// bottom action, bottom tabs on phones (Home · Jobs · Reports · Quotes; bell + account button in the header) or a sidebar on desktop.
 import { esc, icon, $, $$, on, toast, sheet, confirmSheet, hydrate, setLocalResolver, logo, ago, fmtTime } from './ui.js?v=__V__';
 import * as store from './store.js?v=__V__';
 import { notifications } from './lists.js?v=__V__';
@@ -84,7 +84,10 @@ function loginScreen(message = '') {
 }
 
 // ── shell ───────────────────────────────────────────────
-const TABS = [['home', '#/home', 'home', 'Inicio'], ['jobs', '#/jobs', 'work_outline', 'Trabajos'], ['reports', '#/reports', 'description', 'Informes'], ['quotes', '#/quotes', 'request_quote', 'Presupuestos'], ['more', '#/more', 'menu', 'Más']];
+const TABS = [['home', '#/home', 'home', 'Inicio'], ['jobs', '#/jobs', 'work_outline', 'Trabajos'], ['reports', '#/reports', 'description', 'Informes'], ['quotes', '#/quotes', 'request_quote', 'Presupuestos']];
+// tab screens get Notifications (with the unread badge) and the account/settings screen in the header, not a fifth "More" tab
+const headerGlobal = () => `<a class="icon-btn hdr-global" href="#/notifications" aria-label="Notificaciones">${icon('notifications')}<b class="badge" data-badge hidden></b></a>
+  <a class="icon-btn hdr-global" href="#/more" aria-label="Ajustes y cuenta"><span class="avatar sm">${esc((me.name[0] || '?').toUpperCase())}</span></a>`;
 function shell() {
   const admin = me.role === 'admin';
   $app.innerHTML = `
@@ -92,7 +95,7 @@ function shell() {
       <aside class="sidebar" aria-label="Main">
         <div class="side-brand">${logo(40)}<div><b>LCC Informes</b><small>${admin ? 'Administración' : 'App de campo'}</small></div></div>
         <nav class="side-nav">
-          ${TABS.slice(0, 4).map(([k, h, ic, l]) => `<a href="${h}" data-tab="${k}">${icon(ic)}<span>${k === 'home' && admin ? 'Panel' : l}</span></a>`).join('')}
+          ${TABS.map(([k, h, ic, l]) => `<a href="${h}" data-tab="${k}">${icon(ic)}<span>${k === 'home' && admin ? 'Panel' : l}</span></a>`).join('')}
           ${admin ? `<a href="#/new" data-tab="new">${icon('add_home_work')}<span>Nuevo trabajo</span></a><a href="#/team" data-tab="team">${icon('groups')}<span>Equipo</span></a>` : ''}
           <a href="#/notifications" data-tab="notifications">${icon('notifications')}<span>Notificaciones</span><b class="badge" data-badge hidden></b></a>
           <a href="#/more" data-tab="more">${icon('settings')}<span>Ajustes</span></a>
@@ -111,7 +114,7 @@ function shell() {
         <div id="footer" class="action-bar"></div>
       </div>
       <nav class="bottom-nav" aria-label="Main">
-        ${TABS.map(([k, h, ic, l]) => `<a href="${h}" data-tab="${k}">${icon(ic)}<span>${l}</span>${k === 'more' ? '<b class="badge" data-badge hidden></b>' : ''}</a>`).join('')}
+        ${TABS.map(([k, h, ic, l]) => `<a href="${h}" data-tab="${k}">${icon(ic)}<span>${l}</span></a>`).join('')}
       </nav>
     </div>`;
   $$('[data-sync]').forEach((b) => b.addEventListener('click', () => go('#/sync')));
@@ -190,7 +193,7 @@ async function draw(fn, fresh) {
   const put = (el, html) => { if (fresh || el.dataset.html !== html) { el.innerHTML = html; el.dataset.html = html; return true; } return false; };
   $('#hdr-title').textContent = s.title ?? '';
   put($('#hdr-back'), s.back ? `<button class="icon-btn back" aria-label="Atrás">${icon('arrow_back_ios_new')}</button>` : '');
-  put($('#hdr-actions'), s.actions || '');
+  put($('#hdr-actions'), (s.actions || '') + (s.tab ? headerGlobal() : ''));
   const footChanged = put($('#footer'), s.footer || '');
   const bodyChanged = put(view, s.body);
   if (!fresh && !footChanged && !bodyChanged) return; // nothing changed: keep the existing DOM and its handlers
@@ -233,7 +236,7 @@ function more() {
   const row = (href, ic, label, extra = '') => `<a class="list-row" href="${href}">${icon(ic)}<span>${label}</span>${extra}${icon('chevron_right', 'chev')}</a>`;
   const btnRow = (id, ic, label, cls = '') => `<button class="list-row ${cls}" id="${id}">${icon(ic)}<span>${label}</span></button>`;
   return {
-    title: 'Más', tab: 'more',
+    title: 'Ajustes', back: '#/home', side: 'more',
     body: `
       <section class="profile-card"><span class="avatar lg">${esc((me.name[0] || '?').toUpperCase())}</span>
         <div><h2>${esc(me.name)}</h2><p>${esc(me.email)}</p><span class="role-tag">${admin ? 'Administrador' : 'Empleado'}</span></div></section>
@@ -348,7 +351,7 @@ function notificationsScreen() {
   const events = notifications(me);
   safeSet(`lcc-seen:${me.id}`, String(Date.now()));
   return {
-    title: 'Notificaciones', back: '#/more', side: 'notifications', live: true,
+    title: 'Notificaciones', back: '#/home', side: 'notifications', live: true,
     body: events.length ? events.map((e) => {
       const [ic, title, text, cta] = NOTE[e.type];
       return `<a class="card note ${e.at > seen ? 'unread' : ''}" href="${e.href}">
@@ -361,6 +364,27 @@ function notificationsScreen() {
 
 // ── start ───────────────────────────────────────────────
 window.addEventListener('hashchange', route);
+// swipe from the left edge to go back, as in any iPhone app. Only in the installed app: in Safari the
+// browser's own edge swipe already goes back.
+if (standalone()) {
+  let sx = null, sy = 0, dx = 0;
+  const view = () => $('#view');
+  document.addEventListener('touchstart', (e) => {
+    const t = e.touches[0];
+    sx = e.touches.length === 1 && t.clientX < 24 && !sheetOpen() && $('#hdr-back .back') ? t.clientX : null; sy = t.clientY; dx = 0;
+  }, { passive: true });
+  document.addEventListener('touchmove', (e) => {
+    if (sx == null) return;
+    const t = e.touches[0]; dx = t.clientX - sx;
+    if (Math.abs(t.clientY - sy) > 40 && dx < 40) { sx = null; view().style.transform = ''; return; } // a scroll, not a swipe
+    view().style.transform = `translateX(${Math.max(0, dx) * 0.4}px)`;
+  }, { passive: true });
+  document.addEventListener('touchend', () => {
+    if (sx == null) return;
+    sx = null; view().style.transform = '';
+    if (dx > 80) $('#hdr-back .back')?.click();
+  });
+}
 // a job created offline got its real Job ID: move the address bar (and back stack) over to it
 window.addEventListener('lcc:job-id', ({ detail: { tempId, realId } }) => {
   for (let k = 0; k < stack.length; k++) stack[k] = stack[k].replace(tempId, realId);

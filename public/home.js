@@ -11,8 +11,8 @@ const safeSet = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
 const standalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone;
 const mobile = () => matchMedia('(max-width: 1023px)').matches;
 
-function hero(me, sub) {
-  return `<section class="hero"><p class="hero-hi">${greeting()},</p><h2>${esc(me.name.split(' ')[0])}</h2><p class="hero-sub">${sub}</p></section>`;
+function hero(me) {
+  return `<section class="hero"><p class="hero-hi">${greeting()},</p><h2>${esc(me.name.split(' ')[0])}</h2></section>`;
 }
 const tile = (href, n, label, tone = '') => `<a class="tile-stat ${tone}" href="${href}"><b>${n}</b><span>${label}</span></a>`;
 
@@ -80,7 +80,7 @@ function employeeHome(me) {
 
   return {
     title: '', tab: 'home', live: true,
-    body: `${hero(me, 'LCC Informes de obra')}
+    body: `${hero(me)}
       ${draft}
       ${!loaded ? skeleton(1, 230) : current ? cont : `<div class="card">${empty('task_alt', 'No hay trabajos abiertos', 'Lo tienes todo al día. Los trabajos nuevos aparecerán aquí.')}</div>`}
       <h3 class="section-title">Tu trabajo</h3>
@@ -119,7 +119,7 @@ function dashboard(me) {
   return {
     title: 'Panel', tab: 'home', live: true,
     actions: `<a class="icon-btn" href="#/new" aria-label="Nuevo trabajo">${icon('add')}</a>`,
-    body: `${hero(me, 'Panel de administración')}
+    body: `${hero(me)}
       <h3 class="section-title">Resumen</h3>
       ${!store.sync.loaded ? skeleton(1, 100) : `<div class="tiles-4">${tile('#/jobs?f=all', open.length, 'Trabajos activos')}${tile('#/jobs?f=progress', inProgress.length, 'En curso', 'amber')}
         ${tile('#/jobs?f=review', awaiting.length, 'Pendiente de revisión', 'purple')}${tile('#/jobs?f=done', by('Completed').length + by('Reviewed').length, 'Completados', 'green')}</div>`}
