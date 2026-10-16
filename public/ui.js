@@ -64,6 +64,35 @@ export const photoImg = (path, alt = '') => path?.startsWith('local:')
   ? `<img data-local="${esc(path.slice(6))}" alt="${esc(alt)}">`
   : `<img src="${esc(path)}" alt="${esc(alt)}" loading="lazy" decoding="async">`;
 
+// ── save to the phone: iPhone home-screen apps can't download from a link (they only open a viewer), so on phones
+// files go to the share sheet (“Guardar imagen”, “Guardar en Archivos”, WhatsApp…). Elsewhere: normal downloads.
+export async function saveFiles(files, { title = 'Listo', hint = '' } = {}) {
+  if (navigator.canShare?.({ files }) && matchMedia('(pointer: coarse)').matches) {
+    const share = () => navigator.share({ files });
+    try { return await share(); } catch (e) { if (e.name === 'AbortError') return; }
+    // the tap "expired" while the files were being fetched: one more tap opens the share sheet (one sheet at a time)
+    document.querySelectorAll('dialog.sheet[open]').forEach((x) => x.close());
+    const d = sheet(`<h2>${esc(title)}</h2><p class="muted">${esc(hint)}</p>
+      <div class="sheet-actions"><button class="btn btn-primary" data-save>${icon('download')} Guardar</button><button class="btn btn-secondary" data-close>Cancelar</button></div>`);
+    $('[data-save]', d).onclick = async () => { try { await share(); d.close(); } catch (e) { if (e.name === 'AbortError') d.close(); else toast('No se pudo abrir el menú de compartir en este móvil', 'bad'); } };
+    return;
+  }
+  for (const f of files) {
+    const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(f), download: f.name });
+    document.body.append(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 30_000);
+    if (files.length > 1) await new Promise((r) => setTimeout(r, 250)); // browsers drop downloads fired in the same tick
+  }
+}
+export const fileSafe = (s) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\w.-]+/g, '_').replace(/^_+|_+$/g, '');
+/** a photo (server URL or `local:<key>` not yet uploaded) as a File, for saveFiles() */
+export async function photoFile(src, name) {
+  const res = await fetch(src.startsWith('local:') ? await localUrl(src.slice(6)) : src);
+  if (!res.ok) throw new Error(`photo ${res.status}`);
+  const blob = await res.blob();
+  return new File([blob], name, { type: blob.type || 'image/jpeg' });
+}
+
 let toastTimer;
 export function toast(msg, tone = '') {
   const t = document.getElementById('toast');
@@ -113,7 +142,7 @@ export function viewer(items, start = 0) {
   let i = start;
   const d = document.createElement('dialog');
   d.className = 'viewer';
-  d.innerHTML = `<div class="viewer-top"><span class="viewer-label"></span><button class="icon-btn" data-x aria-label="Cerrar">${icon('close')}</button></div>
+  d.innerHTML = `<div class="viewer-top"><span class="viewer-label"></span><span class="viewer-btns"><button class="icon-btn" data-save aria-label="Guardar foto">${icon('download')}</button><button class="icon-btn" data-x aria-label="Cerrar">${icon('close')}</button></span></div>
     <div class="viewer-stage"><img alt=""></div>
     ${items.length > 1 ? `<button class="icon-btn viewer-prev" aria-label="Foto anterior">${icon('chevron_left')}</button><button class="icon-btn viewer-next" aria-label="Foto siguiente">${icon('chevron_right')}</button>` : ''}
     <div class="viewer-count"></div>`;
@@ -137,6 +166,11 @@ export function viewer(items, start = 0) {
   };
   const step = (n) => { i = (i + n + items.length) % items.length; show(); };
   $('[data-x]', d).onclick = () => d.close();
+  $('[data-save]', d).onclick = async () => {
+    const it = items[i];
+    try { await saveFiles([await photoFile(it.src, it.name || `${fileSafe(it.label || 'foto')}.jpg`)], { title: 'Foto lista', hint: 'Toca Guardar y elige “Guardar imagen”.' }); }
+    catch { toast('No se pudo guardar la foto — inténtalo de nuevo', 'bad'); }
+  };
   $('.viewer-prev', d)?.addEventListener('click', () => step(-1));
   $('.viewer-next', d)?.addEventListener('click', () => step(1));
   d.addEventListener('keydown', (e) => { if (e.key === 'ArrowLeft') step(-1); if (e.key === 'ArrowRight') step(1); });

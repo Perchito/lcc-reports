@@ -2,7 +2,7 @@
 // after photos → review → submit → report. All writes go through the store's outbox,
 // so every screen here works with no signal.
 import {
-  esc, icon, on, $, $$, go, redraw, chip, empty, progressBar, photoImg, toast, sheet, confirmSheet, viewer, pickPhoto,
+  esc, icon, on, $, $$, go, redraw, chip, empty, progressBar, photoImg, toast, sheet, confirmSheet, viewer, pickPhoto, saveFiles, photoFile, fileSafe,
   line1, line2, jobNo, fmtDate, ago, logo, tr, signaturePad,
 } from './ui.js?v=__V__';
 import * as store from './store.js?v=__V__';
@@ -40,24 +40,11 @@ function fetchPdf(j, o = pdfOpts()) {
   return blob;
 }
 const pdfName = (j) => `LCC-${j.kind === 'quote' ? 'Quote' : 'Report'}-${j.id}.pdf`;
-// iPhone home-screen apps can't download from a link (they only open a viewer), so on phones the PDF goes
-// to the share sheet ("Guardar en Archivos", WhatsApp, AirDrop…). Elsewhere: a normal download.
+// phones: share sheet ("Guardar en Archivos"); elsewhere a normal download — see saveFiles()
 export async function downloadPdf(j, o) {
   const blob = await fetchPdf(j, o);
-  const file = new File([blob], pdfName(j), { type: 'application/pdf' });
-  if (navigator.canShare?.({ files: [file] }) && matchMedia('(pointer: coarse)').matches) {
-    const share = () => navigator.share({ files: [file], title: pdfName(j) });
-    try { return await share(); } catch (e) { if (e.name === 'AbortError') return; }
-    // the tap "expired" while the PDF was being made: one more tap opens the share sheet (in place of the options sheet: one sheet at a time)
-    document.querySelectorAll('dialog.sheet[open]').forEach((x) => x.close());
-    const d = sheet(`<h2>PDF listo</h2><p class="muted">${esc(pdfName(j))} · ${(blob.size / 1048576).toFixed(1)} MB. Toca Guardar PDF y elige “Guardar en Archivos”.</p>
-      <div class="sheet-actions"><button class="btn btn-primary" data-save>${icon('download')} Guardar PDF</button><button class="btn btn-secondary" data-close>Cancelar</button></div>`);
-    $('[data-save]', d).onclick = async () => { try { await share(); d.close(); } catch (e) { if (e.name === 'AbortError') d.close(); else toast('No se pudo abrir el menú de compartir en este móvil', 'bad'); } };
-    return;
-  }
-  const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: pdfName(j) });
-  document.body.append(a); a.click(); a.remove();
-  setTimeout(() => URL.revokeObjectURL(a.href), 30_000);
+  await saveFiles([new File([blob], pdfName(j), { type: 'application/pdf' })],
+    { title: 'PDF listo', hint: `${pdfName(j)} · ${(blob.size / 1048576).toFixed(1)} MB. Toca Guardar y elige “Guardar en Archivos”.` });
 }
 export async function sharePdf(j, o) {
   const file = new File([await fetchPdf(j, o)], pdfName(j), { type: 'application/pdf' });
@@ -667,7 +654,8 @@ async function reportDetail(id, q, me) {
     const b = photosOf(j, r, 'before').map((x) => x.path), a = photosOf(j, r, 'after').map((x) => x.path);
     return [r, Array.from({ length: Math.max(1, b.length, a.length) }, (_, n) => [b[n], a[n]])];
   });
-  const gallery = pairs.flatMap(([r, rows], k) => rows.flatMap(([b, a], n) => [b && { src: b, label: `${k + 1}. ${tr(r)} · Antes${rows.length > 1 ? ` ${n + 1}` : ''}` }, a && { src: a, label: `${k + 1}. ${tr(r)} · Después${rows.length > 1 ? ` ${n + 1}` : ''}` }])).filter(Boolean);
+  const gallery = pairs.flatMap(([r, rows], k) => rows.flatMap(([b, a], n) => [b && { src: b, label: `${k + 1}. ${tr(r)} · Antes${rows.length > 1 ? ` ${n + 1}` : ''}` }, a && { src: a, label: `${k + 1}. ${tr(r)} · Después${rows.length > 1 ? ` ${n + 1}` : ''}` }])).filter(Boolean)
+    .map((g) => ({ ...g, name: `${fileSafe(`${j.id} ${g.label}`)}.jpg` }));
   const cell = (src, label, r, k) => src ? `<button class="cmp-photo" data-g="${gallery.findIndex((g) => g.src === src)}" aria-label="${esc(tr(r))} ${label}">${photoImg(src, `${tr(r)} ${label}`)}<span>${label}</span></button>`
     : `<div class="cmp-photo none">${icon('image_not_supported')}<span>${label}</span></div>`;
   const kv = (k, v) => `<div><span>${k}</span><b>${v}</b></div>`;
@@ -686,6 +674,7 @@ async function reportDetail(id, q, me) {
       ${!p.photos || p.before < p.photos || p.after < p.photos ? `<p class="notice warn">${icon('warning')}Fotos incompletas: antes ${p.before}/${p.photos}, después ${p.after}/${p.photos}.</p>` : ''}
       <h3 class="section-title">Antes y después</h3>
       <div class="cmp-list">${pairs.map(([r, rows], k) => `<div class="cmp-row"><h4>${k + 1}. ${esc(tr(r))}${rows.length > 1 ? ` <span class="muted">· ${rows.length} pares</span>` : ''}</h4>${rows.map(([b, a], n) => `<div class="cmp-pair">${n && !b ? '<div></div>' : cell(b, 'Antes', r, k)}${n && !a ? '<div></div>' : cell(a, 'Después', r, k)}</div>`).join('')}</div>`).join('')}</div>
+      ${gallery.length ? `<button class="btn btn-secondary save-all" id="save-all">${icon('download')} Guardar todas las fotos (${gallery.length})</button>` : ''}
       <h3 class="section-title">Materiales <span>${mats.length}</span></h3>
       ${mats.length ? `<div class="card table-card">${mats.map((m) => `<div class="mat-line"><div class="grow"><b>${esc(m.description)}</b><small>${esc(tr(m.area))}${m.specification ? ` · ${esc(m.specification)}` : ''}</small></div><span class="qty">${qty(m.quantity)} ${esc(tr(m.unit))}</span>${matChip(m.status)}</div>`).join('')}</div>`
         : '<p class="muted">No hay materiales anotados en este trabajo.</p>'}
@@ -703,6 +692,12 @@ async function reportDetail(id, q, me) {
     mount(v, f) {
       on(v, '[data-g]', 'click', (e, b) => viewer(gallery, Number(b.dataset.g)));
       wireProblemPhotos(v);
+      on(v, '#save-all', 'click', async (e, b) => {
+        b.disabled = true; toast(`Preparando ${gallery.length} fotos…`);
+        try { await saveFiles(await Promise.all(gallery.map((g) => photoFile(g.src, g.name))), { title: `${gallery.length} fotos listas`, hint: 'Toca Guardar y elige “Guardar imágenes”.' }); }
+        catch { toast('No se pudieron guardar las fotos — inténtalo de nuevo', 'bad'); }
+        b.disabled = false;
+      });
       wirePdfActions(f);
       on(f, '#reviewed', 'click', async () => {
         if (!(await confirmSheet({ title: '¿Marcar como revisado?', text: `${address(j)} — el empleado verá que se ha revisado.`, ok: 'Marcar como revisado' }))) return;
