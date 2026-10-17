@@ -683,6 +683,8 @@ app.get('/api/safety-report', admin, async (req, res) => {
   if (!day) throw bad(400, 'Elige un día');
   const { rows } = await pool.query("select data from jobs where data ? 'safety'");
   const entries = safetyLog(rows.map((r) => r.data), day);
+  const names = new Map((await pool.query('select email, name from users')).rows.map((u) => [u.email, u.name]));
+  for (const e of entries) e.name = names.get(e.by);
   const reasons = entries.flatMap((e) => e.issues.map((a) => a.reason));
   const english = await toEnglishMany(reasons).catch(() => new Map());
   for (const e of entries) e.issues = e.issues.map((a) => ({ ...a, reason: english.get(a.reason.trim()) || a.reason }));

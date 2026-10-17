@@ -240,6 +240,8 @@ async function team(q, me) {
 async function safetyPage(q) {
   const day = /^\d{4}-\d{2}-\d{2}$/.test(q.get('d') || '') ? q.get('d') : londonDay(Date.now());
   const log = safetyLog(store.jobs(), day);
+  const users = (await store.api('/api/users').catch(() => null)) || (await store.cachedUsers()) || [];
+  const names = new Map(users.map((u) => [u.email, u.name])), who = (e) => names.get(e.by) || e.by || e.job.assignedTo || '—';
   const done = log.filter((e) => e.kind === 'done'), withIssues = done.filter((e) => e.issues.length), noKit = log.filter((e) => e.kind === 'noKit');
   const time = (d) => new Date(d).toLocaleTimeString('es-ES', { timeZone: 'Europe/London', hour: '2-digit', minute: '2-digit' });
   const stat = (n, label, tone = '') => `<div class="tile-stat ${tone}"><b>${n}</b><span>${label}</span></div>`;
@@ -247,7 +249,7 @@ async function safetyPage(q) {
     const tone = e.kind === 'noKit' ? ['bad', 'block', 'Sin botiquín'] : e.issues.length ? ['warn', 'warning', 'Con avisos'] : ['ok', 'verified_user', 'Todo bien'];
     return `<a class="card safety-card" href="#/jobs/${esc(e.job.id)}/safety">
       <div class="row-between"><b>${esc(line1(e.job))}</b><span class="pill-${tone[0]}">${icon(tone[1])} ${tone[2]}</span></div>
-      <div class="job-meta"><span class="mono">${esc(jobNo(e.job))}</span><span>${icon('person')}${esc(e.by || e.job.assignedTo || '—')}</span><span>${icon('schedule')}${time(e.at)}</span></div>
+      <div class="job-meta"><span class="mono">${esc(jobNo(e.job))}</span><span>${icon('person')}${esc(who(e))}</span><span>${icon('schedule')}${time(e.at)}</span></div>
       ${e.kind === 'noKit' ? '<p class="small bad-text">No tenía botiquín — el trabajo no pudo empezar.</p>' : e.issues.map((a) => `<p class="small bad-text">Sin ${esc(tr(a.item).toLowerCase())}: ${esc(a.reason)}</p>`).join('')}</a>`;
   };
   return {
