@@ -103,7 +103,7 @@ All JSON, cookie session (`lcc_session`). Admins see every job; employees only j
 
 ## Postcode address lookup (quotes)
 
-On the quote form (Presupuestos → Nuevo / Editar) the **postcode comes first**: type it and a list of real addresses at
+On the quote form (Presupuestos → Nuevo / Editar) and the admin job form (Nuevo trabajo / Editar datos) the **postcode comes first**: type it and a list of real addresses at
 that postcode appears (debounced, keyboard / touch / screen-reader friendly). Picking one fills Número / piso, Calle,
 Ciudad and Código postal, which stay editable; the property's **UPRN** is kept on the quote (`uprn`, copied to the job
 when converted) when the data has one, and dropped if the address is edited by hand. Nothing found, offline or lookup
@@ -122,7 +122,7 @@ down → the form says so and the address is typed as before. Nothing is ever sh
 - **Storage:** `data/addresses-london.tsv` (~21 MB, git-ignored, not touched by `deploy.sh`), kept out of Postgres and
   the backups — it can always be rebuilt. Server RAM: ~25 MB. Import: ~130 MB download (deleted after), ~1 min, ~550 MB RAM peak.
 - **Install / refresh** (on perchito, any time; the running server picks up the new file within a minute):
-  `cd ~/lcc-reports && scripts/import-addresses.sh`. Monthly is plenty:
+  `cd ~/lcc-reports && scripts/import-addresses.sh`. Monthly, automatically:
   `(crontab -l; echo '0 4 1 * * cd ~/lcc-reports && scripts/import-addresses.sh >> ~/.cache/lcc-addresses/import.log 2>&1') | crontab -`
 - **Env (optional):** `ADDRESS_DATA` (default `data/addresses-london.tsv`), `ADDRESS_WORK` (default `~/.cache/lcc-addresses`).
 

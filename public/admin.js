@@ -1,13 +1,13 @@
 // Admin screens: new job, edit job details / assignment, team logins.
-import { esc, icon, on, $, $$, toast, sheet, confirmSheet, empty, jobNo, tr, line1, saveFiles } from './ui.js?v=__V__';
+import { esc, icon, on, $, $$, toast, sheet, confirmSheet, empty, jobNo, tr, line1, saveFiles, PC_ATTRS, ADDR_UI, addressLookup } from './ui.js?v=__V__';
 import * as store from './store.js?v=__V__';
 import { STATUS, isOpen, PHOTO_ROOMS, MAX_ROOMS, slug, safetyLog, londonDay, FINAL, FINAL_ES } from './jobs.mjs?v=__V__';
 
 const PROPERTY = [
+  ['postcode', 'Código postal', 'p. ej. W5 2NU', true, 'text', 'postal-code'],
   ['houseNumber', 'Número / piso', 'p. ej. 12 o Flat 4B', true, 'text', 'address-line1'],
   ['street', 'Calle', 'p. ej. Example Street', true, 'text', 'address-line2'],
   ['town', 'Ciudad', 'p. ej. Manchester', true, 'text', 'address-level2'],
-  ['postcode', 'Código postal', 'p. ej. M1 2AB', true, 'text', 'postal-code'],
 ];
 const CONTACT = [
   ['personName', 'Nombre', 'Nombre completo', false, 'text', 'off'],
@@ -15,7 +15,7 @@ const CONTACT = [
   ['personEmail', 'Correo', 'Correo electrónico', false, 'email', 'off'],
 ];
 const field = ([k, label, ph, req, type, ac], value = '') => `<label class="field"><span>${label}${req ? '' : ' <small>(opcional)</small>'}</span>
-  <input id="${k}" name="${k}" type="${type}" placeholder="${ph}" value="${esc(value)}" autocomplete="${ac}" ${req ? 'required' : ''} ${k === 'postcode' ? 'autocapitalize="characters"' : ''}></label>`;
+  <input id="${k}" name="${k}" type="${type}" placeholder="${ph}" value="${esc(value)}" autocomplete="${ac}" ${req ? 'required' : ''} ${k === 'postcode' ? PC_ATTRS : ''}></label>${k === 'postcode' ? ADDR_UI : ''}`;
 
 // the employee list, kept on the device so jobs can be created and assigned with no signal
 export async function employees() {
@@ -67,7 +67,8 @@ function wireSpots(v, onChange) {
 
 function form(values, users, { spots } = {}) {
   return `<form id="jobform" novalidate>
-    <section class="form-section"><h3 class="section-title">Vivienda</h3>${PROPERTY.map((f) => field(f, values[f[0]])).join('')}</section>
+    <section class="form-section"><h3 class="section-title">Vivienda</h3>${PROPERTY.map((f) => field(f, values[f[0]])).join('')}
+      <input type="hidden" id="uprn" name="uprn" value="${esc(values.uprn || '')}"></section>
     <section class="form-section"><h3 class="section-title">Caja de llaves</h3>
       <label class="field"><span>PIN de la caja de llaves <small>(opcional)</small></span><span class="input-wrap"><input id="keySafePin" name="keySafePin" type="password" inputmode="numeric" autocomplete="off" value="${esc(values.keySafePin || '')}" placeholder="Déjalo vacío si no hay caja de llaves">
         <button type="button" class="icon-btn" id="eye" aria-label="Mostrar PIN">${icon('visibility')}</button></span></label></section>
@@ -118,6 +119,7 @@ async function newJob() {
       on(v, 'select, [data-final]', 'change', () => store.saveDraft('new-job', readForm(v)));
       on(v, '#clear', 'click', async () => { await store.clearDraft('new-job'); window.dispatchEvent(new Event('lcc:redraw')); });
       $('#jobform', v).onsubmit = (e) => { e.preventDefault(); $('#save', f).click(); };
+      addressLookup(v);
       on(f, '#save', 'click', async () => {
         if (!validate(v)) return;
         const id = store.createJob(readForm(v));
@@ -168,6 +170,7 @@ async function editJob(id) {
       on(v, 'select, [data-final]', 'change', () => store.saveDraft(key, readForm(v)));
       on(v, '#clear', 'click', async () => { await store.clearDraft(key); window.dispatchEvent(new Event('lcc:redraw')); });
       $('#jobform', v).onsubmit = (e) => { e.preventDefault(); $('#save', f).click(); };
+      addressLookup(v);
       on(f, '#save', 'click', () => {
         if (!validate(v)) return;
         const body = readForm(v);
