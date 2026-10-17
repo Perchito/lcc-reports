@@ -6,6 +6,7 @@ import {
   line1, line2, jobNo, fmtDate, ago, logo, tr, signaturePad,
 } from './ui.js?v=__V__';
 import * as store from './store.js?v=__V__';
+import { reassignSheet } from './admin.js?v=__V__';
 import {
   PHOTO_ROOMS, MATERIAL_AREAS, MATERIAL_STATUSES, MATERIAL_UNITS, PROBLEM_CATEGORIES, CHANGE_TYPES, CHANGE_DECLARATION, STATUS,
   address, progress, nextStep, reviewChecklist, changesSummary, isSigned, money, en, enLine, displayStatus, photoCount, materialList, isOpen, roomsOf, slug, MAX_ROOMS, photosOf, extrasOf,
@@ -107,7 +108,7 @@ async function details(id, q, me) {
     actions: admin ? `<button class="icon-btn" id="menu" aria-label="Opciones del trabajo">${icon('more_horiz')}</button>` : '',
     body: `
       <section class="job-hero">${chip(j)}<h2>${esc(line1(j))}</h2><p>${esc(line2(j))}</p>
-        <div class="job-meta"><span class="mono">${esc(jobNo(j))}</span><span>${icon('event')}${fmtDate(j.createdAt)}</span>${j.assignedTo ? `<span>${icon('person')}${esc(j.assignedTo)}</span>` : ''}</div></section>
+        <div class="job-meta"><span class="mono">${esc(jobNo(j))}</span><span>${icon('event')}${fmtDate(j.createdAt)}</span>${admin && j.assignedTo ? `<button class="btn btn-text btn-sm" id="reassign">${icon('person')}${esc(j.assignedTo)} · Reasignar</button>` : j.assignedTo ? `<span>${icon('person')}${esc(j.assignedTo)}</span>` : ''}</div></section>
       ${j.pendingCreate ? `<p class="notice">${icon('schedule_send')}<span>Trabajo nuevo guardado en este móvil. Recibirá su número y llegará a ${j.assignedTo ? esc(j.assignedTo) : 'el equipo'} cuando vuelvas a tener conexión.</span></p>` : ''}
       ${waiting && !j.pendingCreate ? `<p class="notice">${icon('cloud_upload')}${waiting} cambio${waiting === 1 ? '' : 's'} guardado${waiting === 1 ? '' : 's'} en este móvil ${store.sync.reachable ? '— sincronizando…' : '— se sincronizará cuando vuelvas a tener conexión'}</p>` : ''}
       <section class="card progress-card"><div class="row-between"><h3 class="label">Progreso del trabajo</h3><b class="big-pct">${p.pct}%</b></div>
@@ -137,11 +138,13 @@ async function details(id, q, me) {
       let shown = false;
       on(v, '#eye', 'click', (e, b) => { shown = !shown; $('#pin', v).textContent = shown ? j.keySafePin : '••••'; b.innerHTML = `${icon(shown ? 'visibility_off' : 'visibility')} ${shown ? 'Ocultar' : 'Ver'}`; b.setAttribute('aria-pressed', shown); });
       on(f, '#start', 'click', () => startJob(j));
+      on(v, '#reassign', 'click', () => reassignSheet(j));
       on(document, '#menu', 'click', () => sheet(`<h2>${esc(line1(j))}</h2><div class="list-card">
+        <button class="list-row" id="reassign2" data-close>${icon('person')}<span>${j.assignedTo ? 'Reasignar empleado' : 'Asignar empleado'}</span></button>
         <a class="list-row" href="${base}/edit" data-close>${icon('edit')}<span>Editar datos y asignación</span></a>
         <a class="list-row" href="${base}/review" data-close>${icon('fact_check')}<span>Lista de revisión</span></a>
         <a class="list-row" href="#/reports/${esc(id)}" data-close>${icon('description')}<span>Ver informe</span></a></div>
-        <div class="sheet-actions"><button class="btn btn-secondary" data-close>Cerrar</button></div>`));
+        <div class="sheet-actions"><button class="btn btn-secondary" data-close>Cerrar</button></div>`, { wire: (d) => on(d, '#reassign2', 'click', () => reassignSheet(j)) }));
       store.loadJob(id).catch(() => {}); // freshen in the background
     },
   };

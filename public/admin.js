@@ -125,6 +125,27 @@ async function newJob() {
   };
 }
 
+// a job not started yet follows its assignee: Assigned ↔ Ready to Start
+const withStatus = (j, body) => ('assignedTo' in body && body.assignedTo !== j.assignedTo && [STATUS.draft, STATUS.readyToStart, STATUS.assigned].includes(j.status)
+  ? { ...body, status: body.assignedTo ? STATUS.assigned : STATUS.readyToStart } : body);
+
+// quick (re)assign from the job screen: tap a name, done
+export async function reassignSheet(j) {
+  const users = await employees();
+  if (!users) return toast('Sin conexión — no se pudo cargar el equipo', 'bad');
+  const row = (email, label, sub) => `<button class="list-row" data-to="${esc(email)}">${icon(email === (j.assignedTo || '') ? 'radio_button_checked' : 'radio_button_unchecked')}<span class="grow">${label}${sub ? `<br><small class="muted">${esc(sub)}</small>` : ''}</span></button>`;
+  sheet(`<h2>Asignar a</h2><div class="list-card">${users.map((u) => row(u.email, esc(u.name), u.email)).join('')}${row('', 'Sin asignar')}</div>
+    ${users.length ? '' : '<p class="muted small">Aún no hay empleados — <a href="#/team">añádelos en la página Equipo</a>.</p>'}
+    <div class="sheet-actions"><button class="btn btn-secondary" data-close>Cancelar</button></div>`, {
+    wire: (d) => on(d, '[data-to]', 'click', (e, b) => {
+      d.close();
+      if (b.dataset.to === (j.assignedTo || '')) return;
+      store.patch(j.id, withStatus(j, { assignedTo: b.dataset.to }));
+      toast(b.dataset.to ? `Asignado a ${b.dataset.to}` : 'Sin asignar');
+    }),
+  });
+}
+
 // ── edit job details / (re)assign ───────────────────────
 async function editJob(id) {
   const j = store.job(id) || (await store.loadJob(id));
@@ -147,8 +168,7 @@ async function editJob(id) {
         if (!validate(v)) return;
         const body = readForm(v);
         if (!users && body.assignedTo === '') delete body.assignedTo;
-        if ('assignedTo' in body && body.assignedTo !== j.assignedTo && [STATUS.draft, STATUS.readyToStart, STATUS.assigned].includes(j.status)) body.status = body.assignedTo ? STATUS.assigned : STATUS.readyToStart;
-        store.patch(id, body);
+        store.patch(id, withStatus(j, body));
         store.clearDraft(key);
         toast('Guardado');
         location.replace(`#/jobs/${encodeURIComponent(id)}`);
