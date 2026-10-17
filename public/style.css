@@ -708,3 +708,4 @@ dialog.viewer::backdrop { background: #000; }
 .talk-list li { margin-bottom: 8px; line-height: 1.45; }
 .create-talk { display: flex; align-items: center; gap: 12px; margin-top: 12px; border: 2px dashed var(--line); box-shadow: none; }
 .create-talk > .i { font-size: 1.8rem; color: var(--brand-strong); }
+.talk-h { font-size: 1rem; font-weight: 700; color: var(--brand-strong); margin: 16px 0 6px; }

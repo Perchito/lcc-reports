@@ -12,10 +12,10 @@ const bodyHtml = (text) => {
   const lines = String(text || '').split('\n').map((l) => l.trim()).filter(Boolean);
   let html = '', list = false;
   for (const l of lines) {
-    const bullet = /^[-•]/.test(l);
+    const bullet = /^[-•]/.test(l), head = l.startsWith('## ');
     if (bullet && !list) { html += '<ul class="talk-list">'; list = true; }
     if (!bullet && list) { html += '</ul>'; list = false; }
-    html += bullet ? `<li>${esc(l.replace(/^[-•]\s*/, ''))}</li>` : `<p>${esc(l)}</p>`;
+    html += bullet ? `<li>${esc(l.replace(/^[-•]\s*/, ''))}</li>` : head ? `<h3 class="talk-h">${esc(l.slice(3))}</h3>` : `<p>${esc(l)}</p>`;
   }
   return html + (list ? '</ul>' : '');
 };
@@ -133,7 +133,7 @@ async function edit(id) {
     title: id ? 'Editar charla' : 'Nueva charla', back: id ? `#/training/${enc(id)}` : '#/training',
     body: `<form id="f" novalidate>
       <label class="field"><span>Título</span><input id="title" value="${esc(t.title)}" maxlength="140" placeholder="p. ej. Uso seguro de la radial"></label>
-      <label class="field"><span>Texto de la charla</span><textarea id="body" rows="12" placeholder="Escribe la charla. Empieza una línea con “- ” para hacer una lista.">${esc(t.body)}</textarea></label>
+      <label class="field"><span>Texto de la charla</span><textarea id="body" rows="12" placeholder="Escribe la charla. Empieza una línea con “- ” para hacer una lista y con “## ” para un título.">${esc(t.body)}</textarea></label>
       <label class="field"><span>Repetir (refresco)</span><select id="refresh">${[[0, 'No se repite'], [6, 'Cada 6 meses'], [12, 'Cada 12 meses'], [24, 'Cada 24 meses']].map(([m, l]) => `<option value="${m}" ${Number(t.refreshMonths) === m ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
       ${id && t.builtin ? '<p class="small muted">Si cambias el texto, la hoja de firmas en inglés se traducirá automáticamente.</p>' : ''}
       <p class="form-error" id="err" role="alert" hidden></p></form>`,
