@@ -8,7 +8,11 @@ WORK=${ADDRESS_WORK:-$HOME/.cache/lcc-addresses}
 OUT=${ADDRESS_DATA:-data/addresses-london.tsv}
 URL=https://download.geofabrik.de/europe/united-kingdom/england/greater-london-latest.osm.pbf
 mkdir -p "$WORK" "$(dirname "$OUT")"
-[ -x "$WORK/venv/bin/python" ] || { python3 -m venv "$WORK/venv" && "$WORK/venv/bin/pip" install -q osmium; }
+if [ ! -x "$WORK/venv/bin/pip" ]; then # no sudo needed: Ubuntu's python3 lacks ensurepip, so bootstrap pip (PyPA's get-pip.py)
+  python3 -m venv --without-pip "$WORK/venv"
+  curl -fsSL https://bootstrap.pypa.io/get-pip.py | "$WORK/venv/bin/python" - -q
+  "$WORK/venv/bin/pip" install -q osmium
+fi
 curl -fsSL --retry 3 -o "$WORK/london.osm.pbf" "$URL"
 "$WORK/venv/bin/python" -I scripts/import-addresses.py "$WORK/london.osm.pbf" "$OUT.new"
 rm -f "$WORK/london.osm.pbf"
