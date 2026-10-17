@@ -43,8 +43,10 @@ async function list(q, me) {
     <p class="small muted">${t.round ? `Ronda ${t.round} · fecha límite ${dueText(t.due)} · ${refreshText(t.refreshMonths)}` : `${t.builtin ? 'De la biblioteca' : 'Creada por el administrador'} · sin publicar`}</p></a>`;
   return {
     title: 'Formación', back: '#/more', side: 'training',
+    actions: `<a class="icon-btn" href="#/training/new" aria-label="Nueva charla">${icon('add')}</a>`,
     body: `<p class="lead">Charlas de seguridad para el equipo. Al publicar una, todos los empleados la reciben y deben firmarla.</p>
       <h3 class="section-title">Publicadas</h3>${live.length ? `<div class="card-list">${live.map(row).join('')}</div>` : '<p class="muted">Aún no has publicado ninguna. Empieza por una de la biblioteca.</p>'}
+      <a class="card safety-card create-talk" href="#/training/new">${icon('add_circle')}<span><b>Crear una charla nueva</b><br><small class="muted">Escribe tu propia charla: título, texto y cada cuánto se repite.</small></span></a>
       ${drafts.length ? `<h3 class="section-title">Biblioteca y borradores</h3><div class="card-list">${drafts.map(row).join('')}</div>` : ''}`,
     footer: `<a class="btn btn-primary btn-lg" href="#/training/new">${icon('add')} Nueva charla</a>`,
   };

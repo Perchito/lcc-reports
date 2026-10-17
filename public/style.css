@@ -538,7 +538,7 @@ dialog.viewer::backdrop { background: #000; }
 .note.unread { box-shadow: inset 4px 0 0 var(--brand), var(--shadow); }
 .note-ic { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; flex: none; }
 .t-assigned { background: var(--blue-soft); color: var(--blue); } .t-submitted { background: var(--purple-soft); color: var(--purple); }
-.t-reviewed { background: var(--teal-soft); color: var(--teal); } .t-problem, .t-safety, .t-final { background: var(--orange-soft); color: var(--orange); }
+.t-reviewed { background: var(--teal-soft); color: var(--teal); } .t-problem, .t-safety, .t-final, .t-training { background: var(--orange-soft); color: var(--orange); }
 .note-top { display: flex; justify-content: space-between; gap: 8px; }
 .note-top b { font-size: 0.8824rem; }
 .note-top time { font-size: 0.7647rem; color: var(--muted); white-space: nowrap; }
@@ -706,3 +706,5 @@ dialog.viewer::backdrop { background: #000; }
 .talk-body p { margin: 0 0 10px; }
 .talk-list { margin: 0 0 10px; padding-left: 20px; }
 .talk-list li { margin-bottom: 8px; line-height: 1.45; }
+.create-talk { display: flex; align-items: center; gap: 12px; margin-top: 12px; border: 2px dashed var(--line); box-shadow: none; }
+.create-talk > .i { font-size: 1.8rem; color: var(--brand-strong); }

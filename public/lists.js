@@ -154,6 +154,12 @@ export function notifications(me) {
       if (j.reviewedAt || displayStatus(j) === 'Reviewed') events.push({ ...base, type: 'reviewed', at: Date.parse(j.reviewedAt || j.submittedAt || j.createdAt), href: `#/reports/${j.id}` });
     }
   }
+  // workers: every toolbox talk still to sign stays in the list until it's signed
+  if (me.role !== 'admin') for (const t of store.talks()) if (t.round && !t.mySignedAt) {
+    const late = t.due && t.due < new Date().toLocaleDateString('en-CA');
+    events.push({ type: 'training', id: t.id, address: t.title, at: Date.parse(t.publishedAt), href: `#/training/${t.id}`,
+      text: late ? `Vencida el ${t.due.split('-').reverse().join('/')} — fírmala ya` : `Fírmala antes del ${t.due.split('-').reverse().join('/')}` });
+  }
   return events.filter((e) => e.at).sort((a, b) => b.at - a.at);
 }
 

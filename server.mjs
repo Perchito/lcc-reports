@@ -736,6 +736,17 @@ async function talksHousekeeping() {
   for (const x of LIBRARY) await pool.query('insert into talks (id, data) values ($1, $2) on conflict (id) do nothing', [x.id, { ...x, round: 0 }]);
   const { rows } = await pool.query("select id, data from talks where coalesce((data->>'round')::int, 0) > 0");
   for (const r of rows) if (refreshAt(r.data) && refreshAt(r.data) <= new Date()) await publishTalk(r.id, dueIn()).catch((e) => console.warn('[talks]', r.id, e.message));
+  // once a day (from 9:00 London): a push to whoever hasn't signed, when the due date is tomorrow or already gone
+  const now = new Date(), today = now.toLocaleDateString('en-CA', { timeZone: 'Europe/London' });
+  if (Number(now.toLocaleString('en-GB', { timeZone: 'Europe/London', hour: '2-digit', hour12: false })) < 9) return;
+  for (const r of rows) {
+    const d = r.data;
+    if (!d.due || d.remindedOn === today || d.due > dueIn(1)) continue;
+    const signed = new Set((await signsOf(r.id, d.round)).map((s) => s.email.toLowerCase()));
+    const emails = (await workers()).map((w) => w.email).filter((e) => !signed.has(e.toLowerCase()));
+    await pool.query("update talks set data = data || jsonb_build_object('remindedOn', $2::text) where id = $1", [r.id, today]);
+    if (emails.length) notify(pool, { emails }, { title: d.due < today ? 'Formación vencida' : 'Formación: último día mañana', body: `${d.title} — fírmala en la app`, url: `/#/training/${r.id}`, tag: `talk:${r.id}` });
+  }
 }
 setTimeout(() => talksHousekeeping().catch((e) => console.warn('[talks]', e.message)), 2000);
 setInterval(() => talksHousekeeping().catch((e) => console.warn('[talks]', e.message)), 3600_000);
