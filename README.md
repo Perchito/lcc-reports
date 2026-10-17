@@ -123,7 +123,8 @@ down → the form says so and the address is typed as before. Nothing is ever sh
   the backups — it can always be rebuilt. Server RAM: ~25 MB. Import: ~130 MB download (deleted after), ~1 min, ~550 MB RAM peak.
 - **Install / refresh** (on perchito, any time; the running server picks up the new file within a minute):
   `cd ~/lcc-reports && scripts/import-addresses.sh`. Monthly, automatically:
-  `(crontab -l; echo '0 4 1 * * cd ~/lcc-reports && scripts/import-addresses.sh >> ~/.cache/lcc-addresses/import.log 2>&1') | crontab -`
+  systemd timer `lcc-addresses.timer` (1st of the month, 04:00 London) runs it as `lcc-addresses.service`
+  (`systemctl list-timers lcc-addresses.timer`, logs: `journalctl -u lcc-addresses`).
 - **Env (optional):** `ADDRESS_DATA` (default `data/addresses-london.tsv`), `ADDRESS_WORK` (default `~/.cache/lcc-addresses`).
 
 ## Push notifications
