@@ -101,6 +101,31 @@ All JSON, cookie session (`lcc_session`). Admins see every job; employees only j
 - `GET /api/jobs/:id/files/:file` (photo), `GET /api/jobs/:id/pdf` (PDFKit report)
 - `GET /api/push/key`, `POST /api/push/subscribe`, `POST /api/push/unsubscribe`
 
+## Postcode address lookup (quotes)
+
+On the quote form (Presupuestos → Nuevo / Editar) the **postcode comes first**: type it and a list of real addresses at
+that postcode appears (debounced, keyboard / touch / screen-reader friendly). Picking one fills Número / piso, Calle,
+Ciudad and Código postal, which stay editable; the property's **UPRN** is kept on the quote (`uprn`, copied to the job
+when converted) when the data has one, and dropped if the address is edited by hand. Nothing found, offline or lookup
+down → the form says so and the address is typed as before. Nothing is ever shown as "verified".
+
+- **Data:** OpenStreetMap, Greater London extract from Geofabrik (cut on the OSM Greater London boundary). Free, no key,
+  no account, licence **ODbL** — the dropdown shows "© OpenStreetMap" with a link (required attribution). ~490k
+  addresses at ~56k postcodes (Oct 2026); about half have a UPRN. OSM objects with no postcode get one only when the two
+  nearest addresses on the same street (within 60 m) agree — shown as "código postal deducido". Flats: OSM rarely maps
+  individual flats; a building may show "pisos 1-12" and the flat number is typed.
+- **Files:** `scripts/import-addresses.sh` (download + build, needs python3; makes its own venv with `osmium`),
+  `scripts/import-addresses.py` (the build), `lib/address-lookup.mjs` (postcode rules, file provider, self-check),
+  `GET /api/address-lookup?postcode=W5%202NU` (logged-in users) → `{postcode, results:[{addressLine1, street, town,
+  postcode, uprn, flats, postcodeInferred, source}], truncated, attribution}`; 400 bad postcode, 503 no data file.
+  Max 100 results. Postcodes are not logged. To use another source, give the endpoint another `{ lookup(postcode) }`.
+- **Storage:** `data/addresses-london.tsv` (~21 MB, git-ignored, not touched by `deploy.sh`), kept out of Postgres and
+  the backups — it can always be rebuilt. Server RAM: ~25 MB. Import: ~130 MB download (deleted after), ~1 min, ~550 MB RAM peak.
+- **Install / refresh** (on perchito, any time; the running server picks up the new file within a minute):
+  `cd ~/lcc-reports && scripts/import-addresses.sh`. Monthly is plenty:
+  `(crontab -l; echo '0 4 1 * * cd ~/lcc-reports && scripts/import-addresses.sh >> ~/.cache/lcc-addresses/import.log 2>&1') | crontab -`
+- **Env (optional):** `ADDRESS_DATA` (default `data/addresses-london.tsv`), `ADDRESS_WORK` (default `~/.cache/lcc-addresses`).
+
 ## Push notifications
 
 Web push (`lib/push.mjs`, `web-push` library, VAPID keys in `.env`). Sent when a job is assigned

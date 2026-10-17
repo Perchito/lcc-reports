@@ -90,6 +90,17 @@ input[type=date] { min-height: 44px; }
 .field > span:first-child, .field legend, .field-label { display: block; font-weight: 600; font-size: 0.8824rem; margin-bottom: 6px; color: var(--ink); padding: 0; }
 .field small { color: var(--muted); font-weight: 400; }
 .field > small { display: block; margin-top: 6px; }
+/* postcode → address dropdown (quotes.js addressLookup); it sits in the flow, so it works the same on phones */
+.addr-list { list-style: none; margin: -10px 0 12px; padding: 4px; max-height: min(50vh, 340px); overflow-y: auto; overscroll-behavior: contain;
+  background: var(--card); border: 1.5px solid var(--brand); border-radius: var(--radius-sm); box-shadow: var(--shadow); }
+.addr-list [role=option] { display: block; min-height: 44px; padding: 9px 12px; border-radius: 8px; cursor: pointer; }
+.addr-list [role=option] b { display: block; font-weight: 600; }
+.addr-list [role=option] small { display: block; color: var(--muted); font-size: 0.8235rem; }
+.addr-list [role=option][aria-selected=true], .addr-list [role=option]:hover { background: var(--brand-soft); }
+.addr-status { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: -10px 0 14px; color: var(--muted); font-size: 0.8235rem; }
+.addr-status.warn { color: var(--warn-ink); }
+.addr-status a { color: var(--brand-strong); }
+.addr-status .spin { width: 14px; height: 14px; border-width: 2px; color: var(--brand); }
 .field.invalid input { border-color: var(--red); background: var(--red-soft); }
 .field-row { display: grid; grid-template-columns: 1.2fr 1fr; gap: 12px; }
 .input-wrap { position: relative; display: block; }

@@ -44,18 +44,22 @@ function list(q, me) {
 // ── new / edit ──────────────────────────────────────────
 const FIELDS = [
   ['Cliente', [['personName', 'Nombre del cliente', 'Nombre y apellidos', 'text', 'off', true], ['personPhone', 'Teléfono', '', 'tel', 'off'], ['personEmail', 'Correo', '', 'email', 'off']]],
-  ['Dirección', [['houseNumber', 'Número / piso', 'p. ej. 12 o Flat 4B', 'text', 'address-line1'], ['street', 'Calle', '', 'text', 'address-line2'], ['town', 'Ciudad', '', 'text', 'address-level2'], ['postcode', 'Código postal', '', 'text', 'postal-code']]],
+  ['Dirección', [['postcode', 'Código postal', 'p. ej. W5 2NU', 'text', 'postal-code'], ['houseNumber', 'Número / piso', 'p. ej. 12 o Flat 4B', 'text', 'address-line1'], ['street', 'Calle', '', 'text', 'address-line2'], ['town', 'Ciudad', '', 'text', 'address-level2']]],
 ];
+// the postcode field is also a combobox: type it, pick the property, the other address fields fill in (addressLookup below)
+const PC_ATTRS = 'autocapitalize="characters" spellcheck="false" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="addr-list" aria-describedby="addr-status"';
+const ADDR_UI = `<ul id="addr-list" class="addr-list" role="listbox" aria-label="Direcciones encontradas" hidden></ul><p id="addr-status" class="addr-status" aria-live="polite" hidden></p>`;
 async function quoteForm(id) {
   const j = id ? await getQuote(id) : null;
   const draftKey = 'quote:new', draft = j ? {} : (await store.getDraft(draftKey)) || {};
   const val = (k) => (j ? j[k] ?? '' : draft[k] ?? '');
   const input = ([k, label, ph, type, ac, req]) => `<label class="field"><span>${label}${req ? '' : ' <small>(opcional)</small>'}</span>
-    <input id="${k}" type="${type}" placeholder="${ph}" value="${esc(val(k))}" autocomplete="${ac}" ${k === 'postcode' ? 'autocapitalize="characters"' : ''}></label>`;
-  const keys = [...FIELDS.flatMap(([, f]) => f.map((x) => x[0])), 'work', 'price'];
+    <input id="${k}" type="${type}" placeholder="${ph}" value="${esc(val(k))}" autocomplete="${ac}" ${k === 'postcode' ? PC_ATTRS : ''}></label>${k === 'postcode' ? ADDR_UI : ''}`;
+  const keys = [...FIELDS.flatMap(([, f]) => f.map((x) => x[0])), 'uprn', 'work', 'price'];
   return {
     title: j ? 'Editar presupuesto' : 'Nuevo presupuesto', back: j ? `#/quotes/${enc(id)}` : '#/quotes',
     body: `${FIELDS.map(([title, f]) => `<section class="form-section"><h3 class="section-title">${title}</h3>${f.map(input).join('')}</section>`).join('')}
+      <input type="hidden" id="uprn" value="${esc(val('uprn'))}">
       <section class="form-section"><h3 class="section-title">Trabajo</h3>
         <label class="field"><span>Qué hay que hacer <small>(opcional)</small></span><textarea id="work" rows="4" placeholder="p. ej. Quitar y montar el baño principal nuevo. Se traduce al inglés en el PDF.">${esc(val('work'))}</textarea></label>
         <label class="field"><span>Precio en £ <small>(opcional)</small></span><input id="price" inputmode="decimal" placeholder="p. ej. 2500" value="${esc(val('price') ?? '')}"></label></section>
@@ -64,6 +68,7 @@ async function quoteForm(id) {
     mount(v, f) {
       const read = () => Object.fromEntries(keys.map((k) => [k, $(`#${k}`, v).value.trim()]));
       if (!j) on(v, 'input, textarea', 'input', () => store.saveDraft(draftKey, read()));
+      addressLookup(v);
       on(f, '#save', 'click', () => {
         const vals = read(), err = $('#err', v);
         const price = vals.price.replace(/[£,\s]/g, '');
@@ -83,6 +88,95 @@ async function quoteForm(id) {
       });
     },
   };
+}
+
+// ── postcode → address (GET /api/address-lookup, OpenStreetMap data) ──
+// Debounced search once the postcode is complete; ARIA combobox (arrows / Enter / Escape, tap or click); picking fills
+// número, calle, ciudad and código postal, which stay editable. Nothing found or no connection → type it by hand.
+const PC_RE = /^[A-Z]{1,2}[0-9][A-Z0-9]?[0-9][A-Z]{2}$/;
+const normPostcode = (s) => { const c = String(s ?? '').toUpperCase().replace(/\s+/g, ''); return c.length <= 7 && PC_RE.test(c) ? `${c.slice(0, -3)} ${c.slice(-3)}` : null; };
+function addressLookup(v) {
+  const pc = $('#postcode', v), list = $('#addr-list', v), status = $('#addr-status', v), uprn = $('#uprn', v);
+  let results = [], active = -1, last = '', timer = 0, ctrl = null, filling = false, picked = false;
+  const say = (html, cls = '') => { status.innerHTML = html; status.className = `addr-status ${cls}`; status.hidden = !html; };
+  const open = (yes) => {
+    list.hidden = !yes; pc.setAttribute('aria-expanded', String(yes));
+    if (!yes) { active = -1; pc.removeAttribute('aria-activedescendant'); }
+  };
+  const mark = (i) => {
+    active = i;
+    [...list.children].forEach((li, n) => li.setAttribute('aria-selected', String(n === i)));
+    pc.setAttribute('aria-activedescendant', `addr-${i}`);
+    list.children[i]?.scrollIntoView({ block: 'nearest' });
+  };
+  const osm = '<a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">© OpenStreetMap</a>';
+  async function search() {
+    const code = normPostcode(pc.value);
+    if (!code) { last = ''; results = []; open(false); if (!pc.value.trim()) say(''); return; }
+    if (code === last) { if (results.length && document.activeElement === pc) open(true); return; } // same postcode: show its list again
+    last = code;
+    ctrl?.abort();
+    const mine = ctrl = new AbortController(), timeout = setTimeout(() => mine.abort(), 8000);
+    open(false);
+    say('<span class="spin" aria-hidden="true"></span> Buscando direcciones…');
+    try {
+      const res = await fetch(`/api/address-lookup?postcode=${encodeURIComponent(code)}`, { signal: mine.signal });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw Object.assign(new Error(data.error || ''), { server: true });
+      if (mine !== ctrl) return;
+      results = data.results || [];
+      list.innerHTML = results.map((a, i) => `<li role="option" id="addr-${i}" data-i="${i}" aria-selected="false">
+        <b>${esc([a.addressLine1, a.street].filter(Boolean).join(' '))}</b>
+        <small>${esc([a.town, a.postcode].filter(Boolean).join(' · '))}${a.flats ? ` · pisos ${esc(a.flats)}` : ''}${a.postcodeInferred ? ' · código postal deducido' : ''}</small></li>`).join('');
+      if (results.length) {
+        open(document.activeElement === pc);
+        say(`${results.length}${data.truncated ? '+' : ''} ${results.length === 1 ? 'dirección' : 'direcciones'} en ${esc(code)} — elige la tuya o escríbela abajo. Datos ${osm}`);
+      } else say(`No hay direcciones guardadas para ${esc(code)} — escríbela abajo. Datos ${osm}`);
+    } catch (e) {
+      if (mine !== ctrl) return; // a newer search replaced this one
+      last = ''; // let the same postcode be tried again
+      say((e.server && e.message) || (e.name === 'AbortError' ? 'La búsqueda tarda demasiado — escribe la dirección abajo.' : 'Sin conexión — escribe la dirección abajo.'), 'warn');
+    } finally { clearTimeout(timeout); }
+  }
+  function pick(i) {
+    const a = results[i];
+    if (!a) return;
+    filling = true;
+    for (const [id, x] of [['houseNumber', a.addressLine1], ['street', a.street], ['town', a.town], ['postcode', a.postcode]]) {
+      const el = $(`#${id}`, v);
+      if (x) { el.value = x; el.dispatchEvent(new Event('input')); } // input → the draft saves
+    }
+    filling = false;
+    uprn.value = a.uprn || '';
+    last = a.postcode; picked = true;
+    open(false);
+    say(a.postcodeInferred
+      ? 'Dirección rellenada. <b>El código postal se ha deducido de las casas vecinas</b> — compruébalo con el cliente.'
+      : `Dirección rellenada${a.flats ? ' — añade el número de piso' : ''}. Revísala; puedes cambiar cualquier dato.`, a.postcodeInferred ? 'warn' : '');
+    $('#houseNumber', v).focus();
+  }
+  pc.addEventListener('input', () => { clearTimeout(timer); if (!filling) { picked = false; timer = setTimeout(search, 350); } });
+  pc.addEventListener('change', () => { if (pc.value.trim() && !normPostcode(pc.value)) say('Ese código postal no parece completo — p. ej. W5 2NU. Puedes guardarlo igual.', 'warn'); });
+  pc.addEventListener('focus', () => { if (results.length && !picked && normPostcode(pc.value) === last) open(true); });
+  pc.addEventListener('keydown', (e) => {
+    if (list.hidden) {
+      if (e.key !== 'ArrowDown' || !results.length) return;
+      open(true); mark(0);
+    } else if (e.key === 'ArrowDown') mark(Math.min(active + 1, results.length - 1));
+    else if (e.key === 'ArrowUp') mark(Math.max(active - 1, 0));
+    else if (e.key === 'Enter' && active >= 0) pick(active);
+    else if (e.key === 'Escape') open(false);
+    else return;
+    e.preventDefault();
+  });
+  list.addEventListener('mousedown', (e) => e.preventDefault()); // keep focus in the field on desktop
+  list.addEventListener('click', (e) => { const li = e.target.closest('[role=option]'); if (li) pick(Number(li.dataset.i)); });
+  // close when focus or a tap goes anywhere else on the screen (scrolling the list itself keeps it open)
+  const away = (e) => { if (!list.hidden && e.target !== pc && !list.contains(e.target)) open(false); };
+  v.addEventListener('focusin', away);
+  v.addEventListener('pointerdown', away);
+  // a hand-edited address is no longer the looked-up property: drop its UPRN
+  for (const id of ['houseNumber', 'street', 'postcode']) $(`#${id}`, v).addEventListener('input', () => { if (!filling) uprn.value = ''; });
 }
 
 // ── detail ──────────────────────────────────────────────

@@ -12,6 +12,7 @@ import { LIBRARY, cleanTalk, refreshAt, dueIn } from './lib/talks.mjs';
 import { sendEmail, emailConfigured } from './lib/mailer.mjs';
 import { pushRoutes, notify } from './lib/push.mjs';
 import { address } from './lib/jobs.mjs';
+import { osmFileProvider, lookupAddresses } from './lib/address-lookup.mjs';
 import { toEnglish, toEnglishMany, textsOf, en, needsEnglish } from './lib/translate.mjs';
 
 const { DATABASE_URL, PORT = 4630 } = process.env;
@@ -836,6 +837,16 @@ async function emailReport(job, by) {
   });
   console.log(`[email] report ${job.id} sent to ${to}`);
 }
+
+// Postcode → addresses for the quote form (Greater London, OpenStreetMap; see lib/address-lookup.mjs). Postcodes aren't logged.
+const addressProvider = osmFileProvider(process.env.ADDRESS_DATA || 'data/addresses-london.tsv');
+app.get('/api/address-lookup', requireUser(), (req, res) => {
+  try {
+    res.set('Cache-Control', 'private, max-age=3600').json(lookupAddresses(addressProvider, String(req.query.postcode ?? '').slice(0, 20)));
+  } catch (e) {
+    res.status(e.status || 503).json({ error: e.status ? e.message : 'La búsqueda de direcciones no está disponible ahora — escribe la dirección a mano.' });
+  }
+});
 
 app.use('/api/push', requireUser(), pushRoutes(pool));
 app.use('/api', (req, res) => res.status(404).json({ error: 'No encontrado' }));
