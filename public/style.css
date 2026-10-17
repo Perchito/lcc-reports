@@ -692,3 +692,11 @@ dialog.viewer::backdrop { background: #000; }
 @media (min-width: 1024px) { .hdr-global { display: none; } }
 .ppe-q { padding: 12px 16px; }
 .ppe-q .segmented { flex: none; width: 128px; }
+.safety-card { display: block; text-decoration: none; color: var(--ink); padding: 14px 16px; }
+.safety-card .job-meta { margin-top: 4px; }
+.safety-card p { margin-top: 6px; }
+.bad-text { color: var(--bad-ink); }
+.pill-ok, .pill-warn, .pill-bad { display: inline-flex; align-items: center; gap: 4px; flex: none; padding: 3px 10px; border-radius: 999px; font-size: 0.7647rem; font-weight: 700; }
+.pill-ok { background: var(--green-soft); color: var(--green); } .pill-warn { background: var(--amber-soft); color: var(--warn-ink); } .pill-bad { background: var(--red-soft); color: var(--bad-ink); }
+.pill-ok .i, .pill-warn .i, .pill-bad .i { font-size: 1rem; }
+.tile-stat.red b { color: var(--bad-ink); }

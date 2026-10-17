@@ -96,7 +96,7 @@ function shell() {
         <div class="side-brand">${logo(40)}<div><b>LCC Informes</b><small>${admin ? 'Administración' : 'App de campo'}</small></div></div>
         <nav class="side-nav">
           ${TABS.map(([k, h, ic, l]) => `<a href="${h}" data-tab="${k}">${icon(ic)}<span>${k === 'home' && admin ? 'Panel' : l}</span></a>`).join('')}
-          ${admin ? `<a href="#/new" data-tab="new">${icon('add_home_work')}<span>Nuevo trabajo</span></a><a href="#/team" data-tab="team">${icon('groups')}<span>Equipo</span></a>` : ''}
+          ${admin ? `<a href="#/new" data-tab="new">${icon('add_home_work')}<span>Nuevo trabajo</span></a><a href="#/team" data-tab="team">${icon('groups')}<span>Equipo</span></a><a href="#/safety" data-tab="safety">${icon('health_and_safety')}<span>Seguridad</span></a>` : ''}
           <a href="#/notifications" data-tab="notifications">${icon('notifications')}<span>Notificaciones</span><b class="badge" data-badge hidden></b></a>
           <a href="#/more" data-tab="more">${icon('settings')}<span>Ajustes</span></a>
         </nav>
@@ -242,7 +242,7 @@ function more() {
         <div><h2>${esc(me.name)}</h2><p>${esc(me.email)}</p><span class="role-tag">${admin ? 'Administrador' : 'Empleado'}</span></div></section>
       ${admin ? `<h3 class="section-title">Administración</h3><div class="list-card">
         ${row('#/home', 'space_dashboard', 'Panel de administración')}${row('#/jobs', 'work_outline', 'Gestión de trabajos')}
-        ${row('#/new', 'add_home_work', 'Nuevo trabajo')}${row('#/team', 'groups', 'Equipo')}</div>` : ''}
+        ${row('#/new', 'add_home_work', 'Nuevo trabajo')}${row('#/team', 'groups', 'Equipo')}${row('#/safety', 'health_and_safety', 'Seguridad (informe diario)')}</div>` : ''}
       <h3 class="section-title">Aplicación</h3>
       <div class="list-card">
         ${row('#/notifications', 'notifications', 'Notificaciones', '<b class="badge" data-badge hidden></b>')}

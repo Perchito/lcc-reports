@@ -1,7 +1,7 @@
 // Admin screens: new job, edit job details / assignment, team logins.
-import { esc, icon, on, $, $$, toast, sheet, confirmSheet, empty, jobNo, tr } from './ui.js?v=__V__';
+import { esc, icon, on, $, $$, toast, sheet, confirmSheet, empty, jobNo, tr, line1, saveFiles } from './ui.js?v=__V__';
 import * as store from './store.js?v=__V__';
-import { STATUS, isOpen, PHOTO_ROOMS, MAX_ROOMS, slug } from './jobs.mjs?v=__V__';
+import { STATUS, isOpen, PHOTO_ROOMS, MAX_ROOMS, slug, safetyLog, londonDay } from './jobs.mjs?v=__V__';
 
 const PROPERTY = [
   ['houseNumber', 'Número / piso', 'p. ej. 12 o Flat 4B', true, 'text', 'address-line1'],
@@ -236,7 +236,44 @@ async function team(q, me) {
   };
 }
 
+// ── health & safety: every check done on a day + that day's PDF ──
+async function safetyPage(q) {
+  const day = /^\d{4}-\d{2}-\d{2}$/.test(q.get('d') || '') ? q.get('d') : londonDay(Date.now());
+  const log = safetyLog(store.jobs(), day);
+  const done = log.filter((e) => e.kind === 'done'), withIssues = done.filter((e) => e.issues.length), noKit = log.filter((e) => e.kind === 'noKit');
+  const time = (d) => new Date(d).toLocaleTimeString('es-ES', { timeZone: 'Europe/London', hour: '2-digit', minute: '2-digit' });
+  const stat = (n, label, tone = '') => `<div class="tile-stat ${tone}"><b>${n}</b><span>${label}</span></div>`;
+  const card = (e) => {
+    const tone = e.kind === 'noKit' ? ['bad', 'block', 'Sin botiquín'] : e.issues.length ? ['warn', 'warning', 'Con avisos'] : ['ok', 'verified_user', 'Todo bien'];
+    return `<a class="card safety-card" href="#/jobs/${esc(e.job.id)}/safety">
+      <div class="row-between"><b>${esc(line1(e.job))}</b><span class="pill-${tone[0]}">${icon(tone[1])} ${tone[2]}</span></div>
+      <div class="job-meta"><span class="mono">${esc(jobNo(e.job))}</span><span>${icon('person')}${esc(e.by || e.job.assignedTo || '—')}</span><span>${icon('schedule')}${time(e.at)}</span></div>
+      ${e.kind === 'noKit' ? '<p class="small bad-text">No tenía botiquín — el trabajo no pudo empezar.</p>' : e.issues.map((a) => `<p class="small bad-text">Sin ${esc(tr(a.item).toLowerCase())}: ${esc(a.reason)}</p>`).join('')}</a>`;
+  };
+  return {
+    title: 'Seguridad', back: '#/more', side: 'safety', live: true,
+    body: `<label class="field"><span>Día</span><input type="date" id="day" value="${day}" max="${londonDay(Date.now())}"></label>
+      <div class="tiles-4" style="margin-bottom:16px">${stat(done.length, 'Controles hechos')}${stat(withIssues.length, 'Con avisos', 'amber')}${stat(noKit.length, 'Sin botiquín', 'red')}${stat(new Set(log.map((e) => e.by)).size, 'Empleados')}</div>
+      ${log.length ? `<div class="card-list">${log.map(card).join('')}</div>` : empty('health_and_safety', 'Ningún control este día', 'Los controles de seguridad que hagan los empleados antes de empezar aparecerán aquí.')}`,
+    footer: `<button class="btn btn-primary btn-lg" id="pdf">${icon('picture_as_pdf')} Informe del día (PDF)</button>`,
+    mount(v, f) {
+      on(v, '#day', 'change', (e, i) => { if (i.value) location.replace(`#/safety?d=${i.value}`); });
+      on(f, '#pdf', 'click', async (e, b) => {
+        b.disabled = true;
+        try {
+          const res = await fetch(`/api/safety-report?day=${day}`).catch(() => null);
+          if (!res) throw new Error('Sin conexión — inténtalo cuando tengas señal');
+          if (!res.ok) throw new Error('No se pudo generar el informe');
+          const name = `LCC-Seguridad-${day}.pdf`;
+          await saveFiles([new File([await res.blob()], name, { type: 'application/pdf' })], { title: 'PDF listo', hint: `${name}. Toca Guardar y elige “Guardar en Archivos”.` });
+        } catch (ex) { toast(ex.message, 'bad'); } finally { b.disabled = false; }
+      });
+    },
+  };
+}
+
 export const ROUTES = [
+  [/^\/safety$/, safetyPage, 'admin'],
   [/^\/new$/, newJob, 'admin'],
   [/^\/jobs\/([^/]+)\/edit$/, editJob, 'admin'],
   [/^\/team$/, team, 'admin'],

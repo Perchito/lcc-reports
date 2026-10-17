@@ -6,8 +6,8 @@ import {
   loginBlocked, loginFailed, loginOk,
 } from './lib/auth.mjs';
 import { homeStorage } from './lib/home-storage.mjs';
-import { MATERIAL_AREAS, MAX_ROOMS, STATUS, tr, newJob, cleanPatch, materialItem, problemItem, changeItem, signature, isSigned, CODE_RE, newCode, CHANGE_DECLARATION, slug, roomsOf, findRoom, isQuote, newQuote, cleanQuotePatch, conditionMeta, conditionLocked, MAX_CONDITION, SAFETY_PHOTOS, safetyDone, isStarted, safetyAnswers, safetyIssues, CONDITION_DECLARATION, cleanRooms, photosOf, dropMain, MAX_EXTRA } from './lib/jobs.mjs';
-import { reportPdf, pdfFilename } from './lib/pdf.mjs';
+import { MATERIAL_AREAS, MAX_ROOMS, STATUS, tr, newJob, cleanPatch, materialItem, problemItem, changeItem, signature, isSigned, CODE_RE, newCode, CHANGE_DECLARATION, slug, roomsOf, findRoom, isQuote, newQuote, cleanQuotePatch, conditionMeta, conditionLocked, MAX_CONDITION, SAFETY_PHOTOS, safetyDone, isStarted, safetyAnswers, safetyIssues, safetyLog, PPE, CONDITION_DECLARATION, cleanRooms, photosOf, dropMain, MAX_EXTRA } from './lib/jobs.mjs';
+import { reportPdf, pdfFilename, safetyDayPdf } from './lib/pdf.mjs';
 import { sendEmail, emailConfigured } from './lib/mailer.mjs';
 import { pushRoutes, notify } from './lib/push.mjs';
 import { address } from './lib/jobs.mjs';
@@ -675,6 +675,24 @@ app.get('/api/jobs/:id/pdf', requireUser(), async (req, res) => {
     'content-type': 'application/pdf', 'cache-control': 'private, no-store',
     'content-disposition': `${req.query.download ? 'attachment' : 'inline'}; filename="${pdfFilename(job)}"`,
   }).send(await jobPdf(job, { materials: req.query.materials !== '0', problems: req.query.problems !== '0', changes: req.query.changes !== '0' }));
+});
+
+// the day's safety checks as one PDF (Seguridad page); reasons workers wrote go into English like the rest of the PDFs
+app.get('/api/safety-report', admin, async (req, res) => {
+  const day = /^\d{4}-\d{2}-\d{2}$/.test(req.query.day || '') ? req.query.day : null;
+  if (!day) throw bad(400, 'Elige un día');
+  const { rows } = await pool.query("select data from jobs where data ? 'safety'");
+  const entries = safetyLog(rows.map((r) => r.data), day);
+  const reasons = entries.flatMap((e) => e.issues.map((a) => a.reason));
+  const english = await toEnglishMany(reasons).catch(() => new Map());
+  for (const e of entries) e.issues = e.issues.map((a) => ({ ...a, reason: english.get(a.reason.trim()) || a.reason }));
+  const images = {};
+  await Promise.all(entries.flatMap((e) => SAFETY_PHOTOS.map((k) => e.job.safety[`${k}Path`])).filter(Boolean).map(async (path) => {
+    const got = await storage.get(keyOf(path)).catch(() => null);
+    if (got?.ok) images[path] = Buffer.from(await got.arrayBuffer());
+  }));
+  res.set({ 'content-type': 'application/pdf', 'cache-control': 'private, no-store', 'content-disposition': `inline; filename="LCC-Safety-${day}.pdf"` })
+    .send(await safetyDayPdf(day, entries, images, PPE));
 });
 
 // every submitted report goes to the office by email, PDF attached (REPORT_EMAIL_TO, default Daniel)
