@@ -6,7 +6,7 @@ import {
   loginBlocked, loginFailed, loginOk,
 } from './lib/auth.mjs';
 import { homeStorage } from './lib/home-storage.mjs';
-import { MATERIAL_AREAS, MAX_ROOMS, STATUS, tr, newJob, cleanPatch, materialItem, problemItem, changeItem, signature, isSigned, CODE_RE, newCode, CHANGE_DECLARATION, slug, roomsOf, findRoom, isQuote, newQuote, cleanQuotePatch, conditionMeta, conditionLocked, MAX_CONDITION, SAFETY_PHOTOS, safetyDone, isStarted, safetyAnswers, safetyIssues, safetyLog, PPE, CONDITION_DECLARATION, cleanRooms, photosOf, dropMain, MAX_EXTRA } from './lib/jobs.mjs';
+import { MATERIAL_AREAS, MAX_ROOMS, STATUS, tr, newJob, cleanPatch, materialItem, problemItem, changeItem, signature, isSigned, CODE_RE, newCode, CHANGE_DECLARATION, slug, roomsOf, findRoom, isQuote, newQuote, cleanQuotePatch, conditionMeta, conditionLocked, MAX_CONDITION, SAFETY_PHOTOS, safetyDone, isStarted, safetyAnswers, safetyIssues, safetyLog, PPE, FINAL, FINAL_ES, finalChecklist, finalPending, CONDITION_DECLARATION, cleanRooms, photosOf, dropMain, MAX_EXTRA } from './lib/jobs.mjs';
 import { reportPdf, pdfFilename, safetyDayPdf } from './lib/pdf.mjs';
 import { sendEmail, emailConfigured } from './lib/mailer.mjs';
 import { pushRoutes, notify } from './lib/push.mjs';
@@ -193,6 +193,7 @@ app.patch('/api/jobs/:id', requireUser(), async (req, res) => {
     return res.json(await update(req, 'data || $2::jsonb', [cleanQuotePatch(req.body)]));
   }
   const patch = cleanPatch(req.body, req.user.role);
+  if (req.user.role !== 'admin' && patch.submittedAt && !current.submittedAt && finalPending(current).length) throw bad(409, `Falta firmar la lista final: ${finalPending(current).map((t) => FINAL_ES[t]).join(', ')}`);
   if (req.user.role !== 'admin' && patch.status && isStarted(patch) && !isStarted(current) && !safetyDone(current)) throw bad(409, 'Completa el control de seguridad antes de empezar el trabajo');
   const now = new Date().toISOString();
   if (patch.status === STATUS.adminReviewed) patch.reviewedAt = now;
@@ -482,6 +483,21 @@ app.post('/api/jobs/:id/safety', requireUser(), async (req, res) => {
   const issues = safetyIssues(job.safety);
   if (!hasKit) notify(pool, { role: 'admin', except: req.user.id }, { ...where, title: 'Sin botiquín — trabajo parado', body: `${address(job)} — ${req.user.name} no tiene botiquín y no puede empezar` });
   else if (issues.length) notify(pool, { role: 'admin', except: req.user.id }, { ...where, title: 'Aviso de seguridad (EPI)', body: `${address(job)} — ${req.user.name}: ${issues.map((a) => `sin ${tr(a.item).toLowerCase()} (${a.reason})`).join('; ')}` });
+});
+
+// ── final checklists (bathroom / kitchen), signed by the worker; signed = final ──
+app.post('/api/jobs/:id/final/:type', requireUser(), async (req, res) => {
+  const t = req.params.type;
+  if (!FINAL[t]) throw bad(404, 'Lista no válida');
+  const list = finalChecklist(t, req.body || {});
+  let added = false;
+  const job = await withJob(req, (data) => {
+    if (data.final?.[t]?.signedAt) return; // resend of a queued one
+    (data.final ??= {})[t] = { ...list, operative: req.user.email, operativeName: req.user.name, signedAt: new Date().toISOString() };
+    added = true;
+  });
+  res.json(job);
+  if (added && !list.handover) notify(pool, { role: 'admin', except: req.user.id }, { title: `${FINAL_ES[t]}: no está listo para entregar`, body: `${address(job)} — ${req.user.name}: ${list.comments}`, url: `/#/jobs/${job.id}/final/${t}`, tag: `${job.id}:final` });
 });
 
 // ── condition photos (quotes, and jobs made from them): photo + where + note, locked once the client signs ──

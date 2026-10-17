@@ -1,7 +1,7 @@
 // Admin screens: new job, edit job details / assignment, team logins.
 import { esc, icon, on, $, $$, toast, sheet, confirmSheet, empty, jobNo, tr, line1, saveFiles } from './ui.js?v=__V__';
 import * as store from './store.js?v=__V__';
-import { STATUS, isOpen, PHOTO_ROOMS, MAX_ROOMS, slug, safetyLog, londonDay } from './jobs.mjs?v=__V__';
+import { STATUS, isOpen, PHOTO_ROOMS, MAX_ROOMS, slug, safetyLog, londonDay, FINAL, FINAL_ES } from './jobs.mjs?v=__V__';
 
 const PROPERTY = [
   ['houseNumber', 'Número / piso', 'p. ej. 12 o Flat 4B', true, 'text', 'address-line1'],
@@ -74,6 +74,9 @@ function form(values, users, { spots } = {}) {
     <section class="form-section"><h3 class="section-title">Persona de contacto</h3>${CONTACT.map((f) => field(f, values[f[0]])).join('')}</section>
     <section class="form-section"><h3 class="section-title">Asignar a</h3><label class="field"><span>Empleado</span>${assignSelect(users, values.assignedTo)}</label>
       ${users && !users.length ? '<p class="muted small">Aún no hay empleados — <a href="#/team">añádelos en la página Equipo</a>.</p>' : ''}</section>
+    <section class="form-section"><h3 class="section-title">Listas finales</h3><p class="small muted" style="margin-bottom:10px">El empleado la rellena y la firma al terminar. Sin firmarla no puede enviar el informe.</p>
+      <div class="list-card">${Object.keys(FINAL).map((t) => `<label class="list-row switch-row"><span class="grow"><b>${FINAL_ES[t]}</b></span>
+        <input type="checkbox" role="switch" data-final value="${t}" ${(values.finalTypes || []).includes(t) ? 'checked' : ''}><span class="switch" aria-hidden="true"></span></label>`).join('')}</div></section>
     ${spots ? spotsEditor(Array.isArray(values.rooms) ? values.rooms : [...PHOTO_ROOMS]) : ''}
     <p class="form-error" id="err" role="alert" hidden></p></form>`;
 }
@@ -82,6 +85,7 @@ function readForm(v) {
   const spots = $('#spots', v);
   if (spots) out.rooms = JSON.parse(spots.dataset.rooms);
   out.assignedTo = (out.assignedTo || '').toLowerCase();
+  out.finalTypes = $$('[data-final]', v).filter((c) => c.checked).map((c) => c.value);
   return out;
 }
 function validate(v) {
@@ -111,7 +115,7 @@ async function newJob() {
       wirePin(v);
       wireSpots(v, () => store.saveDraft('new-job', readForm(v)));
       on(v, 'input[name], select', 'input', () => store.saveDraft('new-job', readForm(v)));
-      on(v, 'select', 'change', () => store.saveDraft('new-job', readForm(v)));
+      on(v, 'select, [data-final]', 'change', () => store.saveDraft('new-job', readForm(v)));
       on(v, '#clear', 'click', async () => { await store.clearDraft('new-job'); window.dispatchEvent(new Event('lcc:redraw')); });
       $('#jobform', v).onsubmit = (e) => { e.preventDefault(); $('#save', f).click(); };
       on(f, '#save', 'click', async () => {
@@ -161,7 +165,7 @@ async function editJob(id) {
     mount(v, f) {
       wirePin(v);
       on(v, 'input, select', 'input', () => store.saveDraft(key, readForm(v)));
-      on(v, 'select', 'change', () => store.saveDraft(key, readForm(v)));
+      on(v, 'select, [data-final]', 'change', () => store.saveDraft(key, readForm(v)));
       on(v, '#clear', 'click', async () => { await store.clearDraft(key); window.dispatchEvent(new Event('lcc:redraw')); });
       $('#jobform', v).onsubmit = (e) => { e.preventDefault(); $('#save', f).click(); };
       on(f, '#save', 'click', () => {

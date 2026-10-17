@@ -9,7 +9,7 @@ import * as store from './store.js?v=__V__';
 import { reassignSheet } from './admin.js?v=__V__';
 import {
   PHOTO_ROOMS, MATERIAL_AREAS, MATERIAL_STATUSES, MATERIAL_UNITS, PROBLEM_CATEGORIES, CHANGE_TYPES, CHANGE_DECLARATION, STATUS,
-  PPE, SAFETY_PHOTOS, safetyDone, needsSafety, isStarted, address, progress, nextStep, reviewChecklist, changesSummary, isSigned, money, en, enLine, displayStatus, photoCount, materialList, isOpen, roomsOf, slug, MAX_ROOMS, photosOf, extrasOf,
+  FINAL, FINAL_ES, finalTypesOf, PPE, SAFETY_PHOTOS, safetyDone, needsSafety, isStarted, address, progress, nextStep, reviewChecklist, changesSummary, isSigned, money, en, enLine, displayStatus, photoCount, materialList, isOpen, roomsOf, slug, MAX_ROOMS, photosOf, extrasOf,
 } from './jobs.mjs?v=__V__';
 
 const enc = encodeURIComponent;
@@ -103,7 +103,7 @@ async function details(id, q, me) {
   if (admin && !j.assignedTo && isOpen(j)) footer = `<a class="btn btn-primary btn-lg" href="${base}/edit">${icon('person_add')} Asignar empleado</a>`;
   else if (ns.step === 'start' && !admin) footer = `<button class="btn btn-primary btn-lg" id="start">${icon('play_arrow')} Empezar trabajo</button>`;
   else if (ns.step === 'report') footer = `<a class="btn btn-primary btn-lg" href="#/reports/${esc(id)}">${icon(admin ? 'fact_check' : 'description')} ${ns.label}</a>`;
-  else if (ns.step !== 'start') footer = `<a class="btn btn-primary btn-lg" href="${base}/${ns.step}">${ns.step === 'review' ? icon('fact_check') : icon('photo_camera')} ${p.pct > 0 ? 'Continuar: ' : ''}${ns.label} ${icon('arrow_forward')}</a>`;
+  else if (ns.step !== 'start') footer = `<a class="btn btn-primary btn-lg" href="${base}/${ns.step}">${icon(ns.step === 'review' ? 'fact_check' : ns.step.startsWith('final/') ? 'checklist' : 'photo_camera')} ${p.pct > 0 ? 'Continuar: ' : ''}${ns.label} ${icon('arrow_forward')}</a>`;
 
   return {
     title: line1(j), back: '#/jobs', live: true, side: 'jobs',
@@ -126,6 +126,7 @@ async function details(id, q, me) {
         ${step(`${base}/problems`, 'report_problem', 'Problemas', probs ? `${probs} comunicado${probs === 1 ? '' : 's'}` : 'Ninguno comunicado', probs ? 'warn' : 'todo')}
         ${step(`${base}/changes`, 'gesture', 'Cambios del cliente', changesSummary(j), !chs ? 'todo' : (j.changes || []).every(isSigned) ? 'done' : 'part')}
         ${step(`${base}/photos/after`, 'add_a_photo', 'Fotos después', p.photos ? `${p.after} / ${p.photos} hechas` : 'Añade zonas de fotos', p.photos && p.after === p.photos ? 'done' : p.after ? 'part' : 'todo')}
+        ${finalTypesOf(j).map((t) => { const f = j.final?.[t]; return step(`${base}/final/${t}`, 'checklist', `Lista final: ${FINAL_ES[t]}`, f?.signedAt ? (f.handover ? 'Firmada · lista para entregar' : 'Firmada · con pendientes') : 'Sin hacer', f?.signedAt ? (f.handover ? 'done' : 'warn') : 'todo'); }).join('')}
         ${reportDone || j.reportGeneratedAt ? step(`#/reports/${esc(id)}`, 'description', 'Informe', reportDone ? tr(displayStatus(j)) : 'Generado — sin enviar', reportDone ? 'done' : 'part')
           : step(`${base}/review`, 'fact_check', 'Revisar y enviar', 'Comprueba todo y envíalo', 'todo')}
       </section>
@@ -415,6 +416,81 @@ export const problemCard = (j, p) => `<article class="card problem-card">
   ${p.photoPath ? `<button class="thumb" data-photo="${esc(p.photoPath)}" aria-label="Ver foto del problema">${photoImg(p.photoPath)}</button>` : ''}
 </article>`;
 const wireProblemPhotos = (v) => on(v, '[data-photo]', 'click', (e, b) => viewer([{ src: b.dataset.photo, label: 'Foto del problema' }]));
+
+// ── final checklist (bathroom / kitchen): Sí / No / N/A per line, handover, the worker's signature ──
+const ANS = [['yes', 'Sí'], ['no', 'No'], ['na', 'N/A']];
+async function finalList(id, type, q, me) {
+  const j = await getJob(id);
+  const def = FINAL[type], f = j.final?.[type], base = `#/jobs/${enc(id)}`;
+  const title = `Lista final: ${FINAL_ES[type]}`;
+  const head = (who, when) => `<section class="card info-card final-head"><h3 class="label">${esc(tr(def.title))}</h3>
+    <div class="info-line">${icon('home')}<span>${esc(address(j))}</span></div>
+    <div class="info-line">${icon('tag')}<span class="mono">${esc(jobNo(j))}</span></div>
+    <div class="info-line">${icon('person')}<span>${esc(who)}</span></div>
+    <div class="info-line">${icon('event')}<span>${fmtDate(when)}</span></div></section>`;
+  if (f?.signedAt) {
+    const label = Object.fromEntries(ANS);
+    return {
+      title, back: base, live: true,
+      body: `${head(f.operativeName || store.nameOf(f.operative), f.signedAt)}
+        <p class="notice ${f.handover ? '' : 'bad'}">${icon(f.handover ? 'task_alt' : 'pending_actions')}<span><b>${f.handover ? 'Lista para entregar' : 'No está lista para entregar'}</b>${f.comments ? `<br>${esc(f.comments)}` : ''}</span></p>
+        <section class="card list-card">${f.answers.map((a) => `<div class="check ${a.a === 'no' ? 'todo' : 'ok'}">${icon(a.a === 'yes' ? 'check_circle' : a.a === 'no' ? 'cancel' : 'remove_circle_outline')}
+          <span><b>${esc(tr(a.item))}</b><small>${label[a.a]}${a.comment ? ` — ${esc(a.comment)}` : ''}</small></span></div>`).join('')}</section>
+        <section class="card info-card"><h3 class="label">Firma</h3><img class="sig-img" src="${f.signature}" alt="Firma de ${esc(f.operativeName || '')}"><p class="small muted">Firmado por ${esc(f.operativeName || store.nameOf(f.operative))} · ${fmtDate(f.signedAt)}</p></section>`,
+    };
+  }
+  if (!isOpen(j)) return { redirect: base };
+  const key = `final:${j.id}:${type}`, draft = (await store.getDraft(key)) || { answers: {} };
+  const save = () => store.saveDraft(key, draft);
+  const seg = (name, val, attrs, opts) => `<div class="segmented" role="radiogroup">${opts.map(([v, l]) => `<label><input type="radio" name="${name}" value="${v}" ${attrs} ${val === v ? 'checked' : ''}><span>${l}</span></label>`).join('')}</div>`;
+  let sig;
+  return {
+    title, back: base,
+    body: `${head(me.name, new Date())}
+      <section class="form-section"><h3 class="section-title">Inspección final</h3>
+        <div class="card-list">${def.items.map((item, k) => { const a = draft.answers[item] || {}; return `<div class="card ppe-q final-q"><b>${esc(tr(item))}</b>${seg(`q${k}`, a.a, `data-q="${k}"`, ANS)}
+          <label class="field" data-why="${k}" ${a.a === 'no' ? '' : 'hidden'} style="margin:10px 0 0"><span>¿Qué pasa?</span><textarea rows="2" data-c="${k}">${esc(a.comment || '')}</textarea></label></div>`; }).join('')}</div></section>
+      <section class="form-section"><h3 class="section-title">Resultado final</h3>
+        <div class="card ppe-q final-q"><b>${FINAL_ES[type] === 'Baño' ? '¿El baño está listo para entregar?' : '¿La cocina está lista para entregar?'}</b>
+          ${seg('handover', draft.handover === true ? 'yes' : draft.handover === false ? 'no' : '', 'data-h', [['yes', 'Sí — todo revisado y correcto'], ['no', 'No — quedan pendientes']])}</div>
+        <label class="field" style="margin-top:12px"><span>Pendientes / comentarios <small id="creq">${draft.handover === false ? '' : '(opcional)'}</small></span><textarea id="comments" rows="3" placeholder="p. ej. Falta el cristal de la mampara, llega el lunes">${esc(draft.comments || '')}</textarea></label></section>
+      <section class="form-section"><h3 class="section-title">Tu firma</h3>
+        <p class="small muted" style="margin-bottom:10px">Al firmar confirmas que has hecho todas las comprobaciones de esta lista correctamente.</p>
+        <div class="sig-wrap"><canvas id="sig" class="sig-pad" aria-label="Firma aquí con el dedo"></canvas><button type="button" class="btn btn-text btn-sm" id="clear">${icon('ink_eraser')} Borrar firma</button></div></section>
+      <p class="form-error" id="err" role="alert" hidden></p>`,
+    footer: `<button class="btn btn-primary btn-lg" id="sign">${icon('gesture')} Firmar y guardar</button>`,
+    dirty: () => sig?.inked(),
+    mount(v, f2) {
+      sig = signaturePad($('#sig', v));
+      on(v, '#clear', 'click', sig.fit);
+      on(v, '[data-q]', 'change', (e, r) => {
+        const item = def.items[r.dataset.q];
+        draft.answers[item] = { ...draft.answers[item], a: r.value };
+        $(`[data-why="${r.dataset.q}"]`, v).hidden = r.value !== 'no';
+        save();
+      });
+      on(v, '[data-c]', 'input', (e, t) => { const item = def.items[t.dataset.c]; draft.answers[item] = { ...draft.answers[item], comment: t.value }; save(); });
+      on(v, '[data-h]', 'change', (e, r) => { draft.handover = r.value === 'yes'; $('#creq', v).textContent = draft.handover ? '(opcional)' : ''; save(); });
+      on(v, '#comments', 'input', (e, t) => { draft.comments = t.value; save(); });
+      on(f2, '#sign', 'click', () => {
+        const err = $('#err', v), A = draft.answers;
+        const k = def.items.findIndex((item) => !A[item]?.a), noWhy = def.items.find((item) => A[item]?.a === 'no' && !A[item].comment?.trim());
+        const anyNo = def.items.some((item) => A[item]?.a === 'no');
+        const msg = k >= 0 ? `Contesta: ${tr(def.items[k])}.` : noWhy ? `Explica el No: ${tr(noWhy)}.` : typeof draft.handover !== 'boolean' ? 'Contesta si está listo para entregar.'
+          : draft.handover && anyNo ? 'Hay puntos en No: marca “No — quedan pendientes”.' : !draft.handover && !draft.comments?.trim() ? 'Escribe qué queda pendiente.' : !sig.inked() ? 'Falta tu firma.' : '';
+        if (msg) { err.hidden = false; err.textContent = msg; err.scrollIntoView({ block: 'center' }); return; }
+        store.signFinal(j.id, type, {
+          answers: def.items.map((item) => (A[item].a === 'no' ? { item, a: 'no', comment: A[item].comment.trim() } : { item, a: A[item].a })),
+          handover: draft.handover, comments: (draft.comments || '').trim(), signature: sig.png(),
+        });
+        sig = null; store.clearDraft(key);
+        toast(store.sync.reachable ? 'Lista firmada' : 'Lista firmada — se enviará cuando tengas conexión');
+        const next = j.finalTypes.find((t) => t !== type && !j.final?.[t]?.signedAt);
+        location.replace(next ? `${base}/final/${next}` : `${base}/review`);
+      });
+    },
+  };
+}
 
 // ── health & safety before starting: PPE ticked + first-aid kit photos ──
 const SAFETY_SHOTS = { kit: ['medical_services', 'Foto del botiquín', 'El botiquín cerrado, que se vea bien.'], kitOpen: ['medical_information', 'Foto del botiquín abierto', 'Ábrelo y comprueba que tiene todo lo necesario: tiritas, vendas, gasas, guantes, toallitas, tijeras…'] };
@@ -779,6 +855,7 @@ export const ROUTES = [
   [/^\/jobs\/([^/]+)$/, details],
   [/^\/jobs\/([^/]+)\/photos\/(before|after)$/, photos],
   [/^\/jobs\/([^/]+)\/safety$/, safety],
+  [/^\/jobs\/([^/]+)\/final\/(bathroom|kitchen)$/, finalList],
   [/^\/jobs\/([^/]+)\/materials$/, materials],
   [/^\/jobs\/([^/]+)\/problems$/, problems],
   [/^\/jobs\/([^/]+)\/problems\/new$/, newProblem],

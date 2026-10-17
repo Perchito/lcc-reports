@@ -230,6 +230,7 @@ export function applyOp(j, o) {
       break;
     }
     case 'safetyPhoto': if (!j.safety?.doneAt) Object.assign((j.safety ??= {}), { [`${b.slot}Path`]: `local:${o.blobKey}`, [`${b.slot}By`]: me?.email, [`${b.slot}At`]: new Date(o.seq).toISOString() }); break;
+    case 'final': if (!j.final?.[b.type]?.signedAt) (j.final ??= {})[b.type] = { ...b.list, operative: me?.email, operativeName: me?.name, signedAt: new Date(o.seq).toISOString() }; break;
     case 'safety': if (!j.safety?.doneAt) Object.assign((j.safety ??= {}), b.hasKit ? { answers: b.answers, hasKit: true, doneBy: me?.email, doneAt: new Date(o.seq).toISOString() }
       : { hasKit: false, noKitBy: me?.email, noKitAt: new Date(o.seq).toISOString() }); break;
     case 'condEdit': { const p = j.condition?.find((x) => x.id === b.xid); if (p) Object.assign(p, b.fields); break; }
@@ -270,6 +271,7 @@ export const photo = (jobId, room, type, blob) => enqueue({ id: `slot:${jobId}:$
 export const deletePhoto = (jobId, room, type) => enqueue({ id: `slot:${jobId}:${slug(room)}:${type}`, jobId, kind: 'photoDel', body: { room, type } });
 export const photoExtra = (jobId, room, type, blob, xid = rid()) => enqueue({ id: `xslot:${jobId}:${slug(room)}:${type}:${xid}`, jobId, kind: 'photoX', body: { room, type, xid } }, blob);
 export const deletePhotoExtra = (jobId, room, type, xid) => enqueue({ id: `xslot:${jobId}:${slug(room)}:${type}:${xid}`, jobId, kind: 'photoXDel', body: { room, type, xid } });
+export const signFinal = (jobId, type, list) => enqueue({ id: `final:${jobId}:${type}`, jobId, kind: 'final', body: { type, list } });
 export const safetyPhoto = (jobId, slot, blob) => enqueue({ id: `safety:${jobId}:${slot}`, jobId, kind: 'safetyPhoto', body: { slot } }, blob);
 export const finishSafety = (jobId, answers) => enqueue({ id: `safety:${jobId}:done`, jobId, kind: 'safety', body: { answers, hasKit: true } });
 export const reportNoKit = (jobId) => enqueue({ id: `safety:${jobId}:nokit:${rid()}`, jobId, kind: 'safety', body: { hasKit: false } });
@@ -334,6 +336,7 @@ async function send(o) {
       if (!blob) throw Object.assign(new Error('La foto ya no está en este móvil — vuelve a hacerla'), { status: 410 });
       return api(`${base}/safety/${b.slot}`, { method: 'PUT', raw: blob });
     case 'safety': return api(`${base}/safety`, { method: 'POST', body: b });
+    case 'final': return api(`${base}/final/${b.type}`, { method: 'POST', body: b.list });
     case 'condEdit': return api(`${base}/condition/${b.xid}`, { method: 'PATCH', body: b.fields });
     case 'condDel': return api(`${base}/condition/${b.xid}`, { method: 'DELETE' });
     case 'condSign': return api(`${base}/condition-sign`, { method: 'POST', body: b });

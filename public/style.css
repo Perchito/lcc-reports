@@ -538,7 +538,7 @@ dialog.viewer::backdrop { background: #000; }
 .note.unread { box-shadow: inset 4px 0 0 var(--brand), var(--shadow); }
 .note-ic { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; flex: none; }
 .t-assigned { background: var(--blue-soft); color: var(--blue); } .t-submitted { background: var(--purple-soft); color: var(--purple); }
-.t-reviewed { background: var(--teal-soft); color: var(--teal); } .t-problem, .t-safety { background: var(--orange-soft); color: var(--orange); }
+.t-reviewed { background: var(--teal-soft); color: var(--teal); } .t-problem, .t-safety, .t-final { background: var(--orange-soft); color: var(--orange); }
 .note-top { display: flex; justify-content: space-between; gap: 8px; }
 .note-top b { font-size: 0.8824rem; }
 .note-top time { font-size: 0.7647rem; color: var(--muted); white-space: nowrap; }
@@ -700,3 +700,5 @@ dialog.viewer::backdrop { background: #000; }
 .pill-ok { background: var(--green-soft); color: var(--green); } .pill-warn { background: var(--amber-soft); color: var(--warn-ink); } .pill-bad { background: var(--red-soft); color: var(--bad-ink); }
 .pill-ok .i, .pill-warn .i, .pill-bad .i { font-size: 1rem; }
 .tile-stat.red b { color: var(--bad-ink); }
+.final-q .segmented { margin-top: 10px; }
+.sig-img { display: block; max-width: 260px; width: 100%; background: #fff; border-radius: var(--radius-sm); margin: 6px 0; }
