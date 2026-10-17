@@ -666,7 +666,8 @@ async function jobPdf(job, opts = {}) {
     const got = await storage.get(keyOf(path)).catch(() => null);
     if (got?.ok) images[path] = Buffer.from(await got.arrayBuffer());
   }));
-  return reportPdf(job, images, opts);
+  const name = job.assignedTo && (await pool.query('select name from users where lower(email) = lower($1)', [job.assignedTo])).rows[0]?.name;
+  return reportPdf(job, images, { ...opts, assigneeName: name });
 }
 
 app.get('/api/jobs/:id/pdf', requireUser(), async (req, res) => {

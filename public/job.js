@@ -110,15 +110,15 @@ async function details(id, q, me) {
     actions: admin ? `<button class="icon-btn" id="menu" aria-label="Opciones del trabajo">${icon('more_horiz')}</button>` : '',
     body: `
       <section class="job-hero">${chip(j)}<h2>${esc(line1(j))}</h2><p>${esc(line2(j))}</p>
-        <div class="job-meta"><span class="mono">${esc(jobNo(j))}</span><span>${icon('event')}${fmtDate(j.createdAt)}</span>${admin && j.assignedTo ? `<button class="btn btn-text btn-sm" id="reassign">${icon('person')}${esc(j.assignedTo)} · Reasignar</button>` : j.assignedTo ? `<span>${icon('person')}${esc(j.assignedTo)}</span>` : ''}</div></section>
-      ${j.pendingCreate ? `<p class="notice">${icon('schedule_send')}<span>Trabajo nuevo guardado en este móvil. Recibirá su número y llegará a ${j.assignedTo ? esc(j.assignedTo) : 'el equipo'} cuando vuelvas a tener conexión.</span></p>` : ''}
+        <div class="job-meta"><span class="mono">${esc(jobNo(j))}</span><span>${icon('event')}${fmtDate(j.createdAt)}</span>${admin && j.assignedTo ? `<button class="btn btn-text btn-sm" id="reassign">${icon('person')}${esc(store.nameOf(j.assignedTo))} · Reasignar</button>` : j.assignedTo ? `<span>${icon('person')}${esc(store.nameOf(j.assignedTo))}</span>` : ''}</div></section>
+      ${j.pendingCreate ? `<p class="notice">${icon('schedule_send')}<span>Trabajo nuevo guardado en este móvil. Recibirá su número y llegará a ${j.assignedTo ? esc(store.nameOf(j.assignedTo)) : 'el equipo'} cuando vuelvas a tener conexión.</span></p>` : ''}
       ${waiting && !j.pendingCreate ? `<p class="notice">${icon('cloud_upload')}${waiting} cambio${waiting === 1 ? '' : 's'} guardado${waiting === 1 ? '' : 's'} en este móvil ${store.sync.reachable ? '— sincronizando…' : '— se sincronizará cuando vuelvas a tener conexión'}</p>` : ''}
       <section class="card progress-card"><div class="row-between"><h3 class="label">Progreso del trabajo</h3><b class="big-pct">${p.pct}%</b></div>
         ${progressBar(p.pct, 'Progreso del trabajo')}<p class="muted">${p.done} de ${p.total} etapas completadas${isOpen(j) ? ` · Siguiente: <b>${esc(ns.label)}</b>` : ''}</p></section>
       ${j.fromQuote ? `<p class="notice">${icon('request_quote')}<span>Viene del presupuesto <a href="#/quotes/${esc(j.fromQuote)}">${esc(j.fromQuote)}</a>${j.price != null ? ` · ${esc(money(j.price))}` : ''}</span></p>` : ''}
       ${j.work ? `<section class="card info-card"><h3 class="label">Trabajo acordado</h3><p class="pre">${esc(j.work)}</p></section>` : ''}
       <section class="flow">
-        ${safetyDone(j) || !isStarted(j) ? stepCard(`${base}/safety`, 'health_and_safety', 'Seguridad', safetyDone(j) ? `Hecho · ${fmtDate(j.safety.doneAt)}${j.safety.answers?.some((x) => !x.ok) ? ' · con avisos' : ''}` : j.safety?.noKitAt ? 'Sin botiquín — contacta con Daniel' : 'EPI y botiquín — antes de empezar',
+        ${safetyDone(j) || !isStarted(j) ? stepCard(`${base}/safety`, 'health_and_safety', 'Seguridad y salud', safetyDone(j) ? `Hecho · ${fmtDate(j.safety.doneAt)}${j.safety.answers?.some((x) => !x.ok) ? ' · con avisos' : ''}` : j.safety?.noKitAt ? 'Sin botiquín — contacta con Daniel' : 'EPI y botiquín — antes de empezar',
           safetyDone(j) ? (j.safety.answers?.some((x) => !x.ok) ? 'warn' : 'done') : j.safety?.noKitAt ? 'warn' : 'todo') : ''}
         ${j.condition?.length || j.conditionSign ? step(`${base}/condition`, 'house', 'Estado de la vivienda', `${j.condition?.length || 0} fotos · ${j.conditionSign?.signedAt ? 'firmado' : j.conditionSign ? 'esperando firma' : 'sin firmar'}`, j.conditionSign?.signedAt ? 'done' : 'part') : ''}
         ${step(`${base}/photos/before`, 'photo_camera', 'Fotos antes', p.photos ? `${p.before} / ${p.photos} hechas` : 'Añade zonas de fotos', p.photos && p.before === p.photos ? 'done' : p.before ? 'part' : 'todo')}
@@ -424,8 +424,8 @@ async function safety(id, q, me) {
   const answerRow = (a) => `<div class="check ${a.ok ? 'ok' : 'todo'}">${icon(a.ok ? 'check_circle' : 'cancel')}<span><b>${esc(tr(a.item))}</b>${a.ok ? '' : `<small>No: ${esc(a.reason)}</small>`}</span></div>`;
   if (done || isStarted(j)) {
     return {
-      title: 'Seguridad', back: base, live: true,
-      body: done ? `<p class="lead">${esc(address(j))}</p><p class="notice">${icon('verified_user')}<span>Hecho por ${esc(s.doneBy)} · ${fmtDate(s.doneAt)}</span></p>
+      title: 'Seguridad y salud', back: base, live: true,
+      body: done ? `<p class="lead">${esc(address(j))}</p><p class="notice">${icon('verified_user')}<span>Hecho por ${esc(store.nameOf(s.doneBy))} · ${fmtDate(s.doneAt)}</span></p>
         <section class="card list-card">${(s.answers || (s.ppe || PPE).map((item) => ({ item, ok: true }))).map(answerRow).join('')}</section>
         ${SAFETY_PHOTOS.map((k) => `<section class="field"><span class="field-label">${SAFETY_SHOTS[k][1]}</span><div class="photo-preview">${photoImg(s[`${k}Path`], SAFETY_SHOTS[k][1])}</div></section>`).join('')}`
         : empty('health_and_safety', 'Sin control de seguridad', 'Este trabajo empezó antes de que existiera el control de seguridad.'),
@@ -437,10 +437,10 @@ async function safety(id, q, me) {
   const save = () => store.saveDraft(key, draft);
   const yesNo = (name, val, attrs) => `<div class="segmented" role="radiogroup">${[['yes', 'Sí', true], ['no', 'No', false]].map(([v, label, b]) => `
     <label><input type="radio" name="${name}" value="${v}" ${attrs} ${val === b ? 'checked' : ''} ${admin ? 'disabled' : ''}><span>${label}</span></label>`).join('')}</div>`;
-  const noKitNote = s.noKitAt ? `<p class="notice bad">${icon('medical_services')}<span>${esc(s.noKitBy)} avisó el ${fmtDate(s.noKitAt)} de que no tiene botiquín.</span></p>` : '';
-  if (admin) return { title: 'Seguridad', back: base, live: true, body: `<p class="lead">${esc(address(j))}</p>${noKitNote}${empty('health_and_safety', 'Pendiente', 'El empleado lo completa en su móvil antes de empezar el trabajo.')}` };
+  const noKitNote = s.noKitAt ? `<p class="notice bad">${icon('medical_services')}<span>${esc(store.nameOf(s.noKitBy))} avisó el ${fmtDate(s.noKitAt)} de que no tiene botiquín.</span></p>` : '';
+  if (admin) return { title: 'Seguridad y salud', back: base, live: true, body: `<p class="lead">${esc(address(j))}</p>${noKitNote}${empty('health_and_safety', 'Pendiente', 'El empleado lo completa en su móvil antes de empezar el trabajo.')}` };
   return {
-    title: 'Seguridad', back: base, live: true,
+    title: 'Seguridad y salud', back: base, live: true,
     body: `<p class="lead">Antes de empezar en ${esc(line1(j))}</p>
       <section class="form-section"><h3 class="section-title">Equipo de protección (EPI)</h3><p class="small muted" style="margin-bottom:10px">¿Lo llevas puesto o lo tienes contigo?</p>
         <div class="card-list">${PPE.map((item, k) => { const a = ans[item]; return `<div class="card ppe-q"><div class="row-between"><b>${esc(tr(item))}</b>${yesNo(`ppe${k}`, a?.ok, `data-ppe="${esc(item)}"`)}</div>
@@ -737,7 +737,7 @@ async function reportDetail(id, q, me) {
     body: `
       <section class="report-head">${logo(56)}<div><b>LCC Bathrooms &amp; Services Ltd</b><small>Informe de estado / finalización</small></div></section>
       <section class="card stat-list">${kv('Vivienda', esc(address(j)))}${kv('Nº trabajo', `<span class="mono">${esc(jobNo(j))}</span>`)}
-        ${kv('Fecha', fmtDate(j.reportGeneratedAt || j.submittedAt))}${kv('Empleado', esc(j.assignedTo || '—'))}${kv('Estado', chip(j))}
+        ${kv('Fecha', fmtDate(j.reportGeneratedAt || j.submittedAt))}${kv('Empleado', esc(store.nameOf(j.assignedTo) || '—'))}${kv('Estado', chip(j))}
         ${j.personName ? kv('Persona de contacto', esc(j.personName + (j.personPhone ? ` (${j.personPhone})` : ''))) : ''}</section>
       ${!p.photos || p.before < p.photos || p.after < p.photos ? `<p class="notice warn">${icon('warning')}Fotos incompletas: antes ${p.before}/${p.photos}, después ${p.after}/${p.photos}.</p>` : ''}
       <h3 class="section-title">Antes y después</h3>

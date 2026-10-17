@@ -13,7 +13,7 @@ export function jobCard(j, me, { compact = false } = {}) {
   const stat = (label, value, ok) => `<div class="stat ${ok ? 'is-ok' : ''}"><span>${label}</span><b>${value}</b></div>`;
   return `<a class="card job-card" href="#/jobs/${esc(j.id)}">
     <div class="job-card-top"><div class="grow"><h3>${esc(line1(j))}</h3><p>${esc(line2(j))}</p></div>${chip(j)}</div>
-    <div class="job-meta"><span class="mono">${esc(jobNo(j))}</span>${me.role === 'admin' ? `<span>${icon('person')}${esc(j.assignedTo || 'Sin asignar')}</span>` : ''}
+    <div class="job-meta"><span class="mono">${esc(jobNo(j))}</span>${me.role === 'admin' ? `<span>${icon('person')}${esc(store.nameOf(j.assignedTo) || 'Sin asignar')}</span>` : ''}
       ${waiting ? `<span class="pending-dot">${icon('upload')}${waiting} pendientes</span>` : ''}</div>
     ${compact ? '' : `<div class="stats">${stat('Antes', `${p.before}/${p.photos}`, p.photos && p.before === p.photos)}${stat('Materiales', materialCount(j))}${stat('Problemas', j.problems?.length || 0)}${stat('Después', `${p.after}/${p.photos}`, p.photos && p.after === p.photos)}</div>`}
     <div class="job-card-foot">${progressBar(p.pct, `Progreso de ${line1(j)}`)}<span class="pct">${p.pct}%</span><span class="open">Abrir ${icon('arrow_forward')}</span></div>
@@ -63,7 +63,7 @@ function jobsScreen(query, me) {
       <div class="card-list">${items.map((j) => jobCard(j, me)).join('')}</div>
       ${admin ? `<div class="table-wrap"><table class="table"><thead><tr>${th('id', 'Nº trabajo')}${th('address', 'Vivienda')}${th('employee', 'Empleado')}${th('status', 'Estado')}${th('progress', 'Progreso')}${th('created', 'Creado')}</tr></thead>
         <tbody>${items.map((j) => `<tr data-href="#/jobs/${esc(j.id)}" tabindex="0"><td class="mono">${esc(jobNo(j))}</td><td><b>${esc(line1(j))}</b><br><small>${esc(line2(j))}</small></td>
-          <td>${esc(j.assignedTo || '—')}</td><td>${chip(j)}</td><td><div class="table-progress">${progressBar(progress(j).pct)}<span>${progress(j).pct}%</span></div></td><td>${fmtDate(j.createdAt)}</td></tr>`).join('')}</tbody></table></div>` : ''}`;
+          <td>${esc(store.nameOf(j.assignedTo) || '—')}</td><td>${chip(j)}</td><td><div class="table-progress">${progressBar(progress(j).pct)}<span>${progress(j).pct}%</span></div></td><td>${fmtDate(j.createdAt)}</td></tr>`).join('')}</tbody></table></div>` : ''}`;
   };
 
   return {
@@ -107,7 +107,7 @@ function reportsScreen(query, me) {
       const [ic, label] = REPORT_LABEL[reportState(j)];
       return `<article class="card report-card">
         <a href="#/reports/${esc(j.id)}" class="report-card-main"><div class="grow"><h3>${esc(line1(j))}</h3><p>${esc(line2(j))}</p>
-          <div class="job-meta"><span class="mono">${esc(jobNo(j))}</span>${me.role === 'admin' && j.assignedTo ? `<span>${icon('person')}${esc(j.assignedTo)}</span>` : ''}</div></div>
+          <div class="job-meta"><span class="mono">${esc(jobNo(j))}</span>${me.role === 'admin' && j.assignedTo ? `<span>${icon('person')}${esc(store.nameOf(j.assignedTo))}</span>` : ''}</div></div>
           <div class="report-state r-${reportState(j)}">${icon(ic)}<span>${label}</span><small>${fmtDate(j.submittedAt || j.reportGeneratedAt)}</small></div></a>
         <div class="report-card-actions"><a class="btn btn-secondary btn-sm" href="#/reports/${esc(j.id)}">Ver informe ${icon('arrow_forward')}</a>${pdfActions(j, true)}</div>
       </article>`;
@@ -142,10 +142,10 @@ export function notifications(me) {
   for (const j of store.jobs()) {
     const base = { address: address(j), id: j.id };
     if (me.role === 'admin') {
-      if (j.submittedAt && displayStatus(j) !== 'Reviewed') events.push({ ...base, type: 'submitted', at: Date.parse(j.submittedAt), href: `#/reports/${j.id}`, text: `Enviado por ${j.assignedTo || 'el empleado'}` });
+      if (j.submittedAt && displayStatus(j) !== 'Reviewed') events.push({ ...base, type: 'submitted', at: Date.parse(j.submittedAt), href: `#/reports/${j.id}`, text: `Enviado por ${store.nameOf(j.assignedTo) || 'el empleado'}` });
       for (const p of j.problems || []) if (isOpen(j)) events.push({ ...base, type: 'problem', at: Date.parse(p.createdAt), href: `#/jobs/${j.id}/problems`, text: `${tr(p.category)}${p.area ? ` · ${tr(p.area)}` : ''} — ${p.description}` });
       const s = j.safety;
-      if (s?.noKitAt && !s.doneAt) events.push({ ...base, type: 'safety', at: Date.parse(s.noKitAt), href: `#/jobs/${j.id}/safety`, text: `Sin botiquín — ${s.noKitBy} no puede empezar` });
+      if (s?.noKitAt && !s.doneAt) events.push({ ...base, type: 'safety', at: Date.parse(s.noKitAt), href: `#/jobs/${j.id}/safety`, text: `Sin botiquín — ${store.nameOf(s.noKitBy)} no puede empezar` });
       if (s?.doneAt && s.answers?.some((a) => !a.ok)) events.push({ ...base, type: 'safety', at: Date.parse(s.doneAt), href: `#/jobs/${j.id}/safety`, text: s.answers.filter((a) => !a.ok).map((a) => `Sin ${tr(a.item).toLowerCase()}: ${a.reason}`).join(' · ') });
       for (const c of j.changes || []) if (isOpen(j)) events.push({ ...base, type: 'change', at: Date.parse(c.signedAt), href: `#/jobs/${j.id}/changes`, text: `${tr(c.type)} — ${c.description} (${c.customerName})` });
     } else {

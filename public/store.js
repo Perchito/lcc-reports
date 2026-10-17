@@ -82,6 +82,21 @@ export async function start(user) {
   sync.loaded = server.size > 0 || !!sync.lastSynced;
   notify();
   refresh();
+  loadNames();
+}
+
+// names by email, so screens show who did something instead of an email: admins get the whole team, everyone knows themselves
+const names = new Map();
+export const nameOf = (email) => (email && names.get(String(email).toLowerCase())) || email || '';
+async function loadNames() {
+  const put = (list) => { for (const u of list || []) names.set(String(u.email).toLowerCase(), u.name); names.set(me.email.toLowerCase(), me.name); };
+  put(await kvGet(`names:${me.id}`).catch(() => null));
+  if (me.role !== 'admin') return notify();
+  try {
+    const list = (await api('/api/users')).map((u) => ({ email: u.email, name: u.name }));
+    put(list); await kvSet(`names:${me.id}`, list);
+  } catch { /* offline: the cached names do */ }
+  notify();
 }
 
 /** Forget this user's data on the device (logout). */

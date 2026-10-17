@@ -141,7 +141,7 @@ export async function reassignSheet(j) {
       d.close();
       if (b.dataset.to === (j.assignedTo || '')) return;
       store.patch(j.id, withStatus(j, { assignedTo: b.dataset.to }));
-      toast(b.dataset.to ? `Asignado a ${b.dataset.to}` : 'Sin asignar');
+      toast(b.dataset.to ? `Asignado a ${store.nameOf(b.dataset.to)}` : 'Sin asignar');
     }),
   });
 }
@@ -240,8 +240,7 @@ async function team(q, me) {
 async function safetyPage(q) {
   const day = /^\d{4}-\d{2}-\d{2}$/.test(q.get('d') || '') ? q.get('d') : londonDay(Date.now());
   const log = safetyLog(store.jobs(), day);
-  const users = (await store.api('/api/users').catch(() => null)) || (await store.cachedUsers()) || [];
-  const names = new Map(users.map((u) => [u.email, u.name])), who = (e) => names.get(e.by) || e.by || e.job.assignedTo || '—';
+  const who = (e) => store.nameOf(e.by || e.job.assignedTo) || '—';
   const done = log.filter((e) => e.kind === 'done'), withIssues = done.filter((e) => e.issues.length), noKit = log.filter((e) => e.kind === 'noKit');
   const time = (d) => new Date(d).toLocaleTimeString('es-ES', { timeZone: 'Europe/London', hour: '2-digit', minute: '2-digit' });
   const stat = (n, label, tone = '') => `<div class="tile-stat ${tone}"><b>${n}</b><span>${label}</span></div>`;
@@ -253,7 +252,7 @@ async function safetyPage(q) {
       ${e.kind === 'noKit' ? '<p class="small bad-text">No tenía botiquín — el trabajo no pudo empezar.</p>' : e.issues.map((a) => `<p class="small bad-text">Sin ${esc(tr(a.item).toLowerCase())}: ${esc(a.reason)}</p>`).join('')}</a>`;
   };
   return {
-    title: 'Seguridad', back: '#/more', side: 'safety', live: true,
+    title: 'Seguridad y salud', back: '#/more', side: 'safety', live: true,
     body: `<label class="field"><span>Día</span><input type="date" id="day" value="${day}" max="${londonDay(Date.now())}"></label>
       <div class="tiles-4" style="margin-bottom:16px">${stat(done.length, 'Controles hechos')}${stat(withIssues.length, 'Con avisos', 'amber')}${stat(noKit.length, 'Sin botiquín', 'red')}${stat(new Set(log.map((e) => e.by)).size, 'Empleados')}</div>
       ${log.length ? `<div class="card-list">${log.map(card).join('')}</div>` : empty('health_and_safety', 'Ningún control este día', 'Los controles de seguridad que hagan los empleados antes de empezar aparecerán aquí.')}`,
@@ -266,7 +265,7 @@ async function safetyPage(q) {
           const res = await fetch(`/api/safety-report?day=${day}`).catch(() => null);
           if (!res) throw new Error('Sin conexión — inténtalo cuando tengas señal');
           if (!res.ok) throw new Error('No se pudo generar el informe');
-          const name = `LCC-Seguridad-${day}.pdf`;
+          const name = `LCC-Seguridad-y-salud-${day}.pdf`;
           await saveFiles([new File([await res.blob()], name, { type: 'application/pdf' })], { title: 'PDF listo', hint: `${name}. Toca Guardar y elige “Guardar en Archivos”.` });
         } catch (ex) { toast(ex.message, 'bad'); } finally { b.disabled = false; }
       });
