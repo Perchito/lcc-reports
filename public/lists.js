@@ -144,6 +144,9 @@ export function notifications(me) {
     if (me.role === 'admin') {
       if (j.submittedAt && displayStatus(j) !== 'Reviewed') events.push({ ...base, type: 'submitted', at: Date.parse(j.submittedAt), href: `#/reports/${j.id}`, text: `Enviado por ${j.assignedTo || 'el empleado'}` });
       for (const p of j.problems || []) if (isOpen(j)) events.push({ ...base, type: 'problem', at: Date.parse(p.createdAt), href: `#/jobs/${j.id}/problems`, text: `${tr(p.category)}${p.area ? ` · ${tr(p.area)}` : ''} — ${p.description}` });
+      const s = j.safety;
+      if (s?.noKitAt && !s.doneAt) events.push({ ...base, type: 'safety', at: Date.parse(s.noKitAt), href: `#/jobs/${j.id}/safety`, text: `Sin botiquín — ${s.noKitBy} no puede empezar` });
+      if (s?.doneAt && s.answers?.some((a) => !a.ok)) events.push({ ...base, type: 'safety', at: Date.parse(s.doneAt), href: `#/jobs/${j.id}/safety`, text: s.answers.filter((a) => !a.ok).map((a) => `Sin ${tr(a.item).toLowerCase()}: ${a.reason}`).join(' · ') });
       for (const c of j.changes || []) if (isOpen(j)) events.push({ ...base, type: 'change', at: Date.parse(c.signedAt), href: `#/jobs/${j.id}/changes`, text: `${tr(c.type)} — ${c.description} (${c.customerName})` });
     } else {
       if (j.assignedTo && !photoCount(j, 'before') && isOpen(j)) events.push({ ...base, type: 'assigned', at: Date.parse(j.assignedAt || j.createdAt), href: `#/jobs/${j.id}` });

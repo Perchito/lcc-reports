@@ -118,7 +118,8 @@ async function details(id, q, me) {
       ${j.fromQuote ? `<p class="notice">${icon('request_quote')}<span>Viene del presupuesto <a href="#/quotes/${esc(j.fromQuote)}">${esc(j.fromQuote)}</a>${j.price != null ? ` · ${esc(money(j.price))}` : ''}</span></p>` : ''}
       ${j.work ? `<section class="card info-card"><h3 class="label">Trabajo acordado</h3><p class="pre">${esc(j.work)}</p></section>` : ''}
       <section class="flow">
-        ${safetyDone(j) || !isStarted(j) ? stepCard(`${base}/safety`, 'health_and_safety', 'Seguridad', safetyDone(j) ? `Hecho · ${fmtDate(j.safety.doneAt)}` : 'EPI y botiquín — antes de empezar', safetyDone(j) ? 'done' : 'todo') : ''}
+        ${safetyDone(j) || !isStarted(j) ? stepCard(`${base}/safety`, 'health_and_safety', 'Seguridad', safetyDone(j) ? `Hecho · ${fmtDate(j.safety.doneAt)}${j.safety.answers?.some((x) => !x.ok) ? ' · con avisos' : ''}` : j.safety?.noKitAt ? 'Sin botiquín — contacta con Daniel' : 'EPI y botiquín — antes de empezar',
+          safetyDone(j) ? (j.safety.answers?.some((x) => !x.ok) ? 'warn' : 'done') : j.safety?.noKitAt ? 'warn' : 'todo') : ''}
         ${j.condition?.length || j.conditionSign ? step(`${base}/condition`, 'house', 'Estado de la vivienda', `${j.condition?.length || 0} fotos · ${j.conditionSign?.signedAt ? 'firmado' : j.conditionSign ? 'esperando firma' : 'sin firmar'}`, j.conditionSign?.signedAt ? 'done' : 'part') : ''}
         ${step(`${base}/photos/before`, 'photo_camera', 'Fotos antes', p.photos ? `${p.before} / ${p.photos} hechas` : 'Añade zonas de fotos', p.photos && p.before === p.photos ? 'done' : p.before ? 'part' : 'todo')}
         ${step(`${base}/materials`, 'inventory_2', 'Materiales', mats ? `${mats} material${mats === 1 ? '' : 'es'}` : 'Ninguno anotado aún', mats ? 'done' : 'todo')}
@@ -420,43 +421,54 @@ const SAFETY_SHOTS = { kit: ['medical_services', 'Foto del botiquín', 'El botiq
 async function safety(id, q, me) {
   const j = await getJob(id);
   const s = j.safety || {}, done = safetyDone(j), base = `#/jobs/${enc(id)}`;
+  const answerRow = (a) => `<div class="check ${a.ok ? 'ok' : 'todo'}">${icon(a.ok ? 'check_circle' : 'cancel')}<span><b>${esc(tr(a.item))}</b>${a.ok ? '' : `<small>No: ${esc(a.reason)}</small>`}</span></div>`;
   if (done || isStarted(j)) {
     return {
       title: 'Seguridad', back: base, live: true,
       body: done ? `<p class="lead">${esc(address(j))}</p><p class="notice">${icon('verified_user')}<span>Hecho por ${esc(s.doneBy)} · ${fmtDate(s.doneAt)}</span></p>
-        <section class="card list-card">${(s.ppe || PPE).map((p) => `<div class="check ok">${icon('check_circle')}<b>${esc(tr(p))}</b></div>`).join('')}</section>
+        <section class="card list-card">${(s.answers || (s.ppe || PPE).map((item) => ({ item, ok: true }))).map(answerRow).join('')}</section>
         ${SAFETY_PHOTOS.map((k) => `<section class="field"><span class="field-label">${SAFETY_SHOTS[k][1]}</span><div class="photo-preview">${photoImg(s[`${k}Path`], SAFETY_SHOTS[k][1])}</div></section>`).join('')}`
         : empty('health_and_safety', 'Sin control de seguridad', 'Este trabajo empezó antes de que existiera el control de seguridad.'),
     };
   }
   const admin = me.role === 'admin';
-  const key = `safety:${j.id}`, ticked = new Set((await store.getDraft(key))?.ppe || []);
-  const ready = () => PPE.every((p) => ticked.has(p)) && SAFETY_PHOTOS.every((k) => s[`${k}Path`]);
+  const key = `safety:${j.id}`, draft = (await store.getDraft(key)) || { answers: {} };
+  const ans = draft.answers, hasKit = draft.hasKit;
+  const save = () => store.saveDraft(key, draft);
+  const yesNo = (name, val, attrs) => `<div class="segmented" role="radiogroup">${[['yes', 'Sí', true], ['no', 'No', false]].map(([v, label, b]) => `
+    <label><input type="radio" name="${name}" value="${v}" ${attrs} ${val === b ? 'checked' : ''} ${admin ? 'disabled' : ''}><span>${label}</span></label>`).join('')}</div>`;
+  const noKitNote = s.noKitAt ? `<p class="notice bad">${icon('medical_services')}<span>${esc(s.noKitBy)} avisó el ${fmtDate(s.noKitAt)} de que no tiene botiquín.</span></p>` : '';
+  if (admin) return { title: 'Seguridad', back: base, live: true, body: `<p class="lead">${esc(address(j))}</p>${noKitNote}${empty('health_and_safety', 'Pendiente', 'El empleado lo completa en su móvil antes de empezar el trabajo.')}` };
   return {
     title: 'Seguridad', back: base, live: true,
     body: `<p class="lead">Antes de empezar en ${esc(line1(j))}</p>
-      ${admin ? `<p class="notice">${icon('info')}<span>El empleado lo completa en su móvil antes de empezar el trabajo.</span></p>` : ''}
-      <section class="form-section"><h3 class="section-title">Equipo de protección (EPI)</h3><p class="small muted" style="margin-bottom:10px">Marca lo que llevas puesto o tienes contigo.</p>
-        <div class="list-card">${PPE.map((p) => `<label class="list-row switch-row"><span class="grow"><b>${esc(tr(p))}</b></span>
-          <input type="checkbox" role="switch" data-ppe="${esc(p)}" ${ticked.has(p) ? 'checked' : ''} ${admin ? 'disabled' : ''}><span class="switch" aria-hidden="true"></span></label>`).join('')}</div></section>
-      ${SAFETY_PHOTOS.map((k) => { const [ic, title, hint] = SAFETY_SHOTS[k], path = s[`${k}Path`]; return `<section class="form-section"><h3 class="section-title">${title}</h3><p class="small muted" style="margin-bottom:10px">${hint}</p>
+      <section class="form-section"><h3 class="section-title">Equipo de protección (EPI)</h3><p class="small muted" style="margin-bottom:10px">¿Lo llevas puesto o lo tienes contigo?</p>
+        <div class="card-list">${PPE.map((item, k) => { const a = ans[item]; return `<div class="card ppe-q"><div class="row-between"><b>${esc(tr(item))}</b>${yesNo(`ppe${k}`, a?.ok, `data-ppe="${esc(item)}"`)}</div>
+          ${a?.ok === false ? `<label class="field" style="margin:10px 0 0"><span>¿Por qué no lo tienes?</span><textarea rows="2" data-why="${esc(item)}" placeholder="p. ej. Se me rompieron, las traigo mañana">${esc(a.reason || '')}</textarea></label>` : ''}</div>`; }).join('')}</div>
+        <p class="small muted" style="margin-top:8px">Si contestas que no a algo, se avisará al administrador.</p></section>
+      <section class="form-section"><h3 class="section-title">Botiquín de primeros auxilios</h3>
+        <div class="card ppe-q"><div class="row-between"><b>¿Tienes botiquín?</b>${yesNo('kit', hasKit, 'data-kit')}</div></div></section>
+      ${hasKit === false ? `<p class="notice bad">${icon('block')}<span><b>No puedes empezar el trabajo sin botiquín.</b><br>Contacta con Daniel (administrador).${s.noKitAt ? ' Ya le hemos avisado.' : ''}</span></p>` : ''}
+      ${hasKit ? SAFETY_PHOTOS.map((k) => { const [, title, hint] = SAFETY_SHOTS[k], path = s[`${k}Path`]; return `<section class="form-section"><h3 class="section-title">${title}</h3><p class="small muted" style="margin-bottom:10px">${hint}</p>
         ${path ? `<div class="photo-preview" style="margin-bottom:10px">${photoImg(path, title)}</div>` : ''}
-        ${admin ? (path ? '' : '<p class="muted small">Todavía no hay foto.</p>') : `<div class="btn-row"><button type="button" class="btn btn-secondary" data-cam="${k}">${icon(path ? 'refresh' : 'photo_camera')} ${path ? 'Repetir foto' : 'Hacer foto'}</button><button type="button" class="btn btn-secondary" data-lib="${k}">${icon('photo_library')} Elegir</button></div>`}</section>`; }).join('')}
+        <div class="btn-row"><button type="button" class="btn btn-secondary" data-cam="${k}">${icon(path ? 'refresh' : 'photo_camera')} ${path ? 'Repetir foto' : 'Hacer foto'}</button><button type="button" class="btn btn-secondary" data-lib="${k}">${icon('photo_library')} Elegir</button></div></section>`; }).join('') : ''}
       <p class="form-error" id="err" role="alert" hidden></p>`,
-    footer: admin ? '' : `<button class="btn btn-primary btn-lg" id="go">${icon('play_arrow')} Empezar trabajo</button>`,
+    footer: hasKit === false ? (s.noKitAt ? '' : `<button class="btn btn-primary btn-lg" id="nokit">${icon('notifications_active')} Avisar a Daniel</button>`)
+      : `<button class="btn btn-primary btn-lg" id="go">${icon('play_arrow')} Empezar trabajo</button>`,
     mount(v, f) {
       const shot = async (k, camera) => { const b = await pickPhoto({ camera }); if (b) store.safetyPhoto(j.id, k, b); };
       on(v, '[data-cam]', 'click', (e, b) => shot(b.dataset.cam, true));
       on(v, '[data-lib]', 'click', (e, b) => shot(b.dataset.lib, false));
-      on(v, '[data-ppe]', 'change', (e, c) => { c.checked ? ticked.add(c.dataset.ppe) : ticked.delete(c.dataset.ppe); store.saveDraft(key, { ppe: [...ticked] }); });
+      on(v, '[data-ppe]', 'change', async (e, r) => { ans[r.dataset.ppe] = { ...ans[r.dataset.ppe], ok: r.value === 'yes' }; await save(); redraw(); });
+      on(v, '[data-why]', 'input', (e, t) => { ans[t.dataset.why].reason = t.value; save(); });
+      on(v, '[data-kit]', 'change', async (e, r) => { draft.hasKit = r.value === 'yes'; await save(); redraw(); });
+      on(f, '#nokit', 'click', () => { store.reportNoKit(j.id); toast('Daniel ha sido avisado'); });
       on(f, '#go', 'click', () => {
-        const err = $('#err', v);
-        if (!ready()) {
-          err.hidden = false;
-          err.textContent = PPE.some((p) => !ticked.has(p)) ? 'Marca todo el equipo de protección antes de empezar.' : 'Faltan las fotos del botiquín.';
-          return;
-        }
-        store.finishSafety(j.id, [...ticked]);
+        const err = $('#err', v), missing = PPE.find((p) => typeof ans[p]?.ok !== 'boolean'), noWhy = PPE.find((p) => ans[p]?.ok === false && !ans[p].reason?.trim());
+        const msg = missing ? `Contesta Sí o No: ${tr(missing)}.` : noWhy ? `Explica por qué no tienes: ${tr(noWhy)}.` : hasKit !== true ? 'Contesta si tienes botiquín.'
+          : SAFETY_PHOTOS.some((k) => !s[`${k}Path`]) ? 'Faltan las fotos del botiquín.' : '';
+        if (msg) { err.hidden = false; err.textContent = msg; err.scrollIntoView({ block: 'center' }); return; }
+        store.finishSafety(j.id, PPE.map((item) => (ans[item].ok ? { item, ok: true } : { item, ok: false, reason: ans[item].reason.trim() })));
         store.clearDraft(key);
         startJob({ ...j, safety: { ...s, doneAt: new Date().toISOString() } }, true);
       });

@@ -215,7 +215,8 @@ export function applyOp(j, o) {
       break;
     }
     case 'safetyPhoto': if (!j.safety?.doneAt) Object.assign((j.safety ??= {}), { [`${b.slot}Path`]: `local:${o.blobKey}`, [`${b.slot}By`]: me?.email, [`${b.slot}At`]: new Date(o.seq).toISOString() }); break;
-    case 'safety': if (!j.safety?.doneAt) Object.assign((j.safety ??= {}), { ppe: b.ppe, doneBy: me?.email, doneAt: new Date(o.seq).toISOString() }); break;
+    case 'safety': if (!j.safety?.doneAt) Object.assign((j.safety ??= {}), b.hasKit ? { answers: b.answers, hasKit: true, doneBy: me?.email, doneAt: new Date(o.seq).toISOString() }
+      : { hasKit: false, noKitBy: me?.email, noKitAt: new Date(o.seq).toISOString() }); break;
     case 'condEdit': { const p = j.condition?.find((x) => x.id === b.xid); if (p) Object.assign(p, b.fields); break; }
     case 'condDel': if (j.condition) j.condition = j.condition.filter((x) => x.id !== b.xid); break;
     case 'condSign': if (!j.conditionSign?.signedAt && !(b.remote && j.conditionSign?.signCode)) j.conditionSign = b.remote
@@ -255,7 +256,8 @@ export const deletePhoto = (jobId, room, type) => enqueue({ id: `slot:${jobId}:$
 export const photoExtra = (jobId, room, type, blob, xid = rid()) => enqueue({ id: `xslot:${jobId}:${slug(room)}:${type}:${xid}`, jobId, kind: 'photoX', body: { room, type, xid } }, blob);
 export const deletePhotoExtra = (jobId, room, type, xid) => enqueue({ id: `xslot:${jobId}:${slug(room)}:${type}:${xid}`, jobId, kind: 'photoXDel', body: { room, type, xid } });
 export const safetyPhoto = (jobId, slot, blob) => enqueue({ id: `safety:${jobId}:${slot}`, jobId, kind: 'safetyPhoto', body: { slot } }, blob);
-export const finishSafety = (jobId, ppe) => enqueue({ id: `safety:${jobId}:done`, jobId, kind: 'safety', body: { ppe } });
+export const finishSafety = (jobId, answers) => enqueue({ id: `safety:${jobId}:done`, jobId, kind: 'safety', body: { answers, hasKit: true } });
+export const reportNoKit = (jobId) => enqueue({ id: `safety:${jobId}:nokit:${rid()}`, jobId, kind: 'safety', body: { hasKit: false } });
 export const addRoom = (jobId, name) => enqueue({ id: `room:${jobId}:${slug(name)}:${rid()}`, jobId, kind: 'roomAdd', body: { name } });
 export const renameRoom = (jobId, from, to) => enqueue({ id: `room:${jobId}:${slug(from)}:${rid()}`, jobId, kind: 'roomRen', body: { from, to } });
 export const removeRoom = (jobId, name) => enqueue({ id: `room:${jobId}:${slug(name)}:${rid()}`, jobId, kind: 'roomDel', body: { name } });

@@ -6,7 +6,7 @@ import {
   loginBlocked, loginFailed, loginOk,
 } from './lib/auth.mjs';
 import { homeStorage } from './lib/home-storage.mjs';
-import { MATERIAL_AREAS, MAX_ROOMS, STATUS, tr, newJob, cleanPatch, materialItem, problemItem, changeItem, signature, isSigned, CODE_RE, newCode, CHANGE_DECLARATION, slug, roomsOf, findRoom, isQuote, newQuote, cleanQuotePatch, conditionMeta, conditionLocked, MAX_CONDITION, PPE, SAFETY_PHOTOS, safetyDone, isStarted, CONDITION_DECLARATION, cleanRooms, photosOf, dropMain, MAX_EXTRA } from './lib/jobs.mjs';
+import { MATERIAL_AREAS, MAX_ROOMS, STATUS, tr, newJob, cleanPatch, materialItem, problemItem, changeItem, signature, isSigned, CODE_RE, newCode, CHANGE_DECLARATION, slug, roomsOf, findRoom, isQuote, newQuote, cleanQuotePatch, conditionMeta, conditionLocked, MAX_CONDITION, SAFETY_PHOTOS, safetyDone, isStarted, safetyAnswers, safetyIssues, CONDITION_DECLARATION, cleanRooms, photosOf, dropMain, MAX_EXTRA } from './lib/jobs.mjs';
 import { reportPdf, pdfFilename } from './lib/pdf.mjs';
 import { sendEmail, emailConfigured } from './lib/mailer.mjs';
 import { pushRoutes, notify } from './lib/push.mjs';
@@ -463,14 +463,25 @@ app.put('/api/jobs/:id/safety/:slot', requireUser(), jpeg, async (req, res) => {
     Object.assign((data.safety ??= {}), { [`${k}Path`]: fileUrl(req.params.id, file), [`${k}By`]: req.user.email, [`${k}At`]: new Date().toISOString() });
   }));
 });
+// hasKit false = no first-aid kit: the job stays blocked and the admins are told; true = done (needs both kit photos)
 app.post('/api/jobs/:id/safety', requireUser(), async (req, res) => {
-  const ticked = Array.isArray(req.body?.ppe) ? req.body.ppe : [];
-  res.json(await withJob(req, (data) => {
+  const hasKit = req.body?.hasKit === true, now = new Date().toISOString();
+  const answers = hasKit ? safetyAnswers(req.body?.answers) : null;
+  let changed = false;
+  const job = await withJob(req, (data) => {
     if (safetyDone(data)) return; // resend
-    if (PPE.some((p) => !ticked.includes(p))) throw bad(400, 'Marca todo el equipo de protección');
-    if (SAFETY_PHOTOS.some((k) => !data.safety?.[`${k}Path`])) throw bad(400, 'Faltan las fotos del botiquín');
-    Object.assign(data.safety, { ppe: [...PPE], doneBy: req.user.email, doneAt: new Date().toISOString() });
-  }));
+    const s = (data.safety ??= {});
+    if (!hasKit) { Object.assign(s, { hasKit: false, noKitBy: req.user.email, noKitAt: now }); changed = true; return; }
+    if (SAFETY_PHOTOS.some((k) => !s[`${k}Path`])) throw bad(400, 'Faltan las fotos del botiquín');
+    Object.assign(s, { answers, hasKit: true, doneBy: req.user.email, doneAt: now });
+    changed = true;
+  });
+  res.json(job);
+  if (!changed) return;
+  const where = { url: `/#/jobs/${job.id}/safety`, tag: `${job.id}:safety` };
+  const issues = safetyIssues(job.safety);
+  if (!hasKit) notify(pool, { role: 'admin', except: req.user.id }, { ...where, title: 'Sin botiquín — trabajo parado', body: `${address(job)} — ${req.user.name} no tiene botiquín y no puede empezar` });
+  else if (issues.length) notify(pool, { role: 'admin', except: req.user.id }, { ...where, title: 'Aviso de seguridad (EPI)', body: `${address(job)} — ${req.user.name}: ${issues.map((a) => `sin ${tr(a.item).toLowerCase()} (${a.reason})`).join('; ')}` });
 });
 
 // ── condition photos (quotes, and jobs made from them): photo + where + note, locked once the client signs ──

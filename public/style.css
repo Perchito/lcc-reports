@@ -538,7 +538,7 @@ dialog.viewer::backdrop { background: #000; }
 .note.unread { box-shadow: inset 4px 0 0 var(--brand), var(--shadow); }
 .note-ic { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; flex: none; }
 .t-assigned { background: var(--blue-soft); color: var(--blue); } .t-submitted { background: var(--purple-soft); color: var(--purple); }
-.t-reviewed { background: var(--teal-soft); color: var(--teal); } .t-problem { background: var(--orange-soft); color: var(--orange); }
+.t-reviewed { background: var(--teal-soft); color: var(--teal); } .t-problem, .t-safety { background: var(--orange-soft); color: var(--orange); }
 .note-top { display: flex; justify-content: space-between; gap: 8px; }
 .note-top b { font-size: 0.8824rem; }
 .note-top time { font-size: 0.7647rem; color: var(--muted); white-space: nowrap; }
@@ -690,3 +690,5 @@ dialog.viewer::backdrop { background: #000; }
 .sync-pill.s-ok span:not(.i) { display: none; } /* only says something when there is something to say */
 .sync-pill.s-ok { padding: 4px; background: none; }
 @media (min-width: 1024px) { .hdr-global { display: none; } }
+.ppe-q { padding: 12px 16px; }
+.ppe-q .segmented { flex: none; width: 128px; }
