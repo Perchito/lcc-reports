@@ -219,6 +219,7 @@ async function team(q, me) {
       on(v, '[data-menu]', 'click', (e, b) => {
         const u = users.find((x) => x.id === b.dataset.menu);
         sheet(`<h2>${esc(u.name)}</h2><p class="muted">${esc(u.email)}</p><div class="list-card">
+          ${u.role === 'employee' ? `<a class="list-row" href="#/training/person/${encodeURIComponent(u.email)}" data-close>${icon('school')}<span>Formación firmada</span></a>` : ''}
           <button class="list-row" id="reset">${icon('lock_reset')}<span>Restablecer contraseña</span></button>
           ${u.id === me.id ? '' : `<button class="list-row ${u.active ? 'danger' : ''}" id="toggle">${icon(u.active ? 'person_off' : 'person')}<span>${u.active ? 'Desactivar acceso' : 'Reactivar acceso'}</span></button>`}</div>
           <div class="sheet-actions"><button class="btn btn-secondary" data-close>Cerrar</button></div>`, {

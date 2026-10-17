@@ -47,3 +47,21 @@ create table if not exists push_subscriptions (
   keys       jsonb not null,  -- {p256dh, auth}
   created_at timestamptz not null default now()
 );
+
+-- toolbox talks / refresher training (lib/talks.mjs). data: {title, body, titleEn?, bodyEn?, refreshMonths, round,
+-- publishedAt, due, builtin, createdBy}. round 0 = draft (never published).
+create table if not exists talks (
+  id         text primary key,
+  data       jsonb not null,
+  created_at timestamptz not null default now()
+);
+-- one signature per worker per round of a talk
+create table if not exists talk_signs (
+  talk_id    text not null references talks(id) on delete cascade,
+  email      text not null,
+  round      int not null,
+  name       text not null,
+  signature  text not null,  -- PNG data URL
+  signed_at  timestamptz not null default now(),
+  primary key (talk_id, email, round)
+);

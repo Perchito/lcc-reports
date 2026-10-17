@@ -6,8 +6,9 @@ import {
   loginBlocked, loginFailed, loginOk,
 } from './lib/auth.mjs';
 import { homeStorage } from './lib/home-storage.mjs';
-import { MATERIAL_AREAS, MAX_ROOMS, STATUS, tr, newJob, cleanPatch, materialItem, problemItem, changeItem, signature, isSigned, CODE_RE, newCode, CHANGE_DECLARATION, slug, roomsOf, findRoom, isQuote, newQuote, cleanQuotePatch, conditionMeta, conditionLocked, MAX_CONDITION, SAFETY_PHOTOS, safetyDone, isStarted, safetyAnswers, safetyIssues, safetyLog, PPE, FINAL, FINAL_ES, finalChecklist, finalPending, CONDITION_DECLARATION, cleanRooms, photosOf, dropMain, MAX_EXTRA } from './lib/jobs.mjs';
-import { reportPdf, pdfFilename, safetyDayPdf } from './lib/pdf.mjs';
+import { MATERIAL_AREAS, MAX_ROOMS, STATUS, tr, newJob, cleanPatch, materialItem, problemItem, changeItem, signature, isSigned, CODE_RE, newCode, CHANGE_DECLARATION, slug, roomsOf, findRoom, isQuote, newQuote, cleanQuotePatch, conditionMeta, conditionLocked, MAX_CONDITION, SAFETY_PHOTOS, safetyDone, isStarted, safetyAnswers, safetyIssues, safetyLog, PPE, FINAL, FINAL_ES, finalChecklist, finalPending, SIG_RE, CONDITION_DECLARATION, cleanRooms, photosOf, dropMain, MAX_EXTRA } from './lib/jobs.mjs';
+import { reportPdf, pdfFilename, safetyDayPdf, talkSheetPdf } from './lib/pdf.mjs';
+import { LIBRARY, cleanTalk, refreshAt, dueIn } from './lib/talks.mjs';
 import { sendEmail, emailConfigured } from './lib/mailer.mjs';
 import { pushRoutes, notify } from './lib/push.mjs';
 import { address } from './lib/jobs.mjs';
@@ -712,6 +713,105 @@ app.get('/api/safety-report', admin, async (req, res) => {
   }));
   res.set({ 'content-type': 'application/pdf', 'cache-control': 'private, no-store', 'content-disposition': `inline; filename="LCC-Safety-${day}.pdf"` })
     .send(await safetyDayPdf(day, entries, images, PPE));
+});
+
+// ── toolbox talks / refresher training (lib/talks.mjs) ──
+const talkOf = async (id) => {
+  const { rows } = await pool.query('select id, data from talks where id = $1', [id]);
+  if (!rows[0]) throw bad(404, 'No se encontró esta charla');
+  return { ...rows[0].data, id: rows[0].id };
+};
+const workers = async () => (await pool.query("select email, name from users where active and role = 'employee' order by name")).rows;
+const signsOf = async (id, round) => (await pool.query('select email, name, signed_at, signature from talk_signs where talk_id = $1 and round = $2', [id, round])).rows;
+async function publishTalk(id, due) {
+  const { rows: [row] } = await pool.query(
+    `update talks set data = data || jsonb_build_object('round', coalesce((data->>'round')::int, 0) + 1, 'publishedAt', now(), 'due', $2::text,
+      'rounds', coalesce(data->'rounds', '[]'::jsonb) || jsonb_build_array(jsonb_build_object('round', coalesce((data->>'round')::int, 0) + 1, 'publishedAt', now(), 'due', $2::text)))
+      where id = $1 returning data`, [id, due]);
+  notify(pool, { role: 'employee' }, { title: 'Nueva formación', body: `${row.data.title} — fírmala antes del ${due.split('-').reverse().join('/')}`, url: `/#/training/${id}`, tag: `talk:${id}` });
+  return row.data;
+}
+// built-in talks arrive once as drafts; refreshers start a new round on their own
+async function talksHousekeeping() {
+  for (const x of LIBRARY) await pool.query('insert into talks (id, data) values ($1, $2) on conflict (id) do nothing', [x.id, { ...x, round: 0 }]);
+  const { rows } = await pool.query("select id, data from talks where coalesce((data->>'round')::int, 0) > 0");
+  for (const r of rows) if (refreshAt(r.data) && refreshAt(r.data) <= new Date()) await publishTalk(r.id, dueIn()).catch((e) => console.warn('[talks]', r.id, e.message));
+}
+setTimeout(() => talksHousekeeping().catch((e) => console.warn('[talks]', e.message)), 2000);
+setInterval(() => talksHousekeeping().catch((e) => console.warn('[talks]', e.message)), 3600_000);
+
+app.get('/api/talks', requireUser(), async (req, res) => {
+  const isAdmin = req.user.role === 'admin';
+  const { rows } = await pool.query(`select t.id, t.data,
+      (select count(*)::int from talk_signs s join users u on lower(u.email) = lower(s.email) and u.active and u.role = 'employee'
+        where s.talk_id = t.id and s.round = coalesce((t.data->>'round')::int, 0)) as signed,
+      (select signed_at from talk_signs s where s.talk_id = t.id and lower(s.email) = lower($1) and s.round = coalesce((t.data->>'round')::int, 0)) as mine
+    from talks t ${isAdmin ? '' : "where coalesce((t.data->>'round')::int, 0) > 0"} order by t.id`, [req.user.email]);
+  const total = isAdmin ? (await workers()).length : undefined;
+  res.json(rows.map((r) => ({ ...r.data, id: r.id, body: undefined, bodyEn: undefined, signed: isAdmin ? r.signed : undefined, total, mySignedAt: r.mine })));
+});
+app.get('/api/talks/:id', requireUser(), async (req, res) => {
+  const talk = await talkOf(req.params.id);
+  if (req.user.role !== 'admin') {
+    if (!talk.round) throw bad(404, 'No se encontró esta charla');
+    const mine = (await signsOf(talk.id, talk.round)).find((s) => s.email.toLowerCase() === req.user.email.toLowerCase());
+    return res.json({ ...talk, mySignedAt: mine?.signed_at || null });
+  }
+  const signs = talk.round ? await signsOf(talk.id, talk.round) : [];
+  const by = new Map(signs.map((s) => [s.email.toLowerCase(), s]));
+  res.json({ ...talk, roster: (await workers()).map((w) => ({ email: w.email, name: w.name, signedAt: by.get(w.email.toLowerCase())?.signed_at || null })) });
+});
+app.post('/api/talks', admin, async (req, res) => {
+  const fields = cleanTalk(req.body || {});
+  const { rows: [{ n }] } = await pool.query("select coalesce(max(substring(id from 4)::int), 0) + 1 as n from talks where id ~ '^TB-[0-9]+$'");
+  const id = `TB-${String(n).padStart(2, '0')}`;
+  await pool.query('insert into talks (id, data) values ($1, $2)', [id, { ...fields, round: 0, createdBy: req.user.email }]);
+  res.json(await talkOf(id));
+});
+app.patch('/api/talks/:id', admin, async (req, res) => {
+  const fields = cleanTalk(req.body || {}, true);
+  const drop = ('title' in fields || 'body' in fields) ? { titleEn: null, bodyEn: null } : {}; // the English copy would no longer match
+  await talkOf(req.params.id);
+  await pool.query('update talks set data = data || $2::jsonb where id = $1', [req.params.id, { ...fields, ...drop }]);
+  res.json(await talkOf(req.params.id));
+});
+app.post('/api/talks/:id/publish', admin, async (req, res) => {
+  await talkOf(req.params.id);
+  const due = /^\d{4}-\d{2}-\d{2}$/.test(req.body?.due || '') && req.body.due >= dueIn(0) ? req.body.due : dueIn();
+  await publishTalk(req.params.id, due);
+  res.json(await talkOf(req.params.id));
+});
+app.post('/api/talks/:id/sign', requireUser(), async (req, res) => {
+  const talk = await talkOf(req.params.id);
+  if (!talk.round) throw bad(409, 'Esta charla todavía no está publicada');
+  const sig = req.body?.signature;
+  if (req.body?.read !== true) throw bad(400, 'Confirma que lo has leído y entendido');
+  if (typeof sig !== 'string' || !SIG_RE.test(sig) || sig.length > 300_000) throw bad(400, 'Falta tu firma');
+  await pool.query('insert into talk_signs (talk_id, email, round, name, signature) values ($1, $2, $3, $4, $5) on conflict do nothing',
+    [talk.id, req.user.email.toLowerCase(), talk.round, req.user.name, sig]);
+  res.json({ ok: true });
+});
+// a worker's training record: every talk they signed (admins: anyone's; workers: their own)
+app.get('/api/training', requireUser(), async (req, res) => {
+  const email = (req.user.role === 'admin' && req.query.email ? String(req.query.email) : req.user.email).toLowerCase();
+  const { rows } = await pool.query(`select s.talk_id, s.round, s.signed_at, t.data->>'title' as title, coalesce((t.data->>'round')::int, 0) as current
+    from talk_signs s join talks t on t.id = s.talk_id where lower(s.email) = $1 order by s.signed_at desc`, [email]);
+  res.json(rows.map((r) => ({ talkId: r.talk_id, title: r.title, round: r.round, signedAt: r.signed_at, current: r.round === r.current })));
+});
+app.get('/api/talks/:id/pdf', admin, async (req, res) => {
+  const talk = await talkOf(req.params.id);
+  const round = Number(req.query.round) || talk.round;
+  if (!round) throw bad(409, 'Esta charla todavía no está publicada');
+  const signs = await signsOf(talk.id, round);
+  const signed = new Set(signs.map((s) => s.email.toLowerCase()));
+  const pending = round === talk.round ? (await workers()).filter((w) => !signed.has(w.email.toLowerCase())) : [];
+  let { titleEn, bodyEn } = talk;
+  if (!titleEn || !bodyEn) {
+    const done = await toEnglishMany([talk.title, talk.body]).catch(() => new Map());
+    titleEn = done.get(talk.title.trim()) || talk.title; bodyEn = done.get(talk.body.trim()) || talk.body;
+  }
+  res.set({ 'content-type': 'application/pdf', 'cache-control': 'private, no-store', 'content-disposition': `inline; filename="LCC-Toolbox-${talk.id}-round${round}.pdf"` })
+    .send(await talkSheetPdf({ ...talk, titleEn, bodyEn }, round, signs, pending));
 });
 
 // every submitted report goes to the office by email, PDF attached (REPORT_EMAIL_TO, default Daniel)

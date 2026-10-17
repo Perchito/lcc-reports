@@ -157,6 +157,13 @@ export async function refresh() {
   } catch (e) { if (!e.offline) sync.error = e.message; }
   notify();
   flush();
+  refreshTalks();
+}
+// toolbox talks, for the Home reminder (the Formación screens fetch their own)
+let talkList = [];
+export const talks = () => talkList;
+export async function refreshTalks() {
+  try { talkList = await api('/api/talks'); notify(); } catch { /* offline: keep the last list */ }
 }
 function markSynced() { sync.lastSynced = Date.now(); if (me) kvSet(`synced:${me.id}`, sync.lastSynced); }
 

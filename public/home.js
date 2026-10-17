@@ -82,6 +82,7 @@ function employeeHome(me) {
     title: '', tab: 'home', live: true,
     body: `${hero(me)}
       ${draft}
+      ${(() => { const due = store.talks().filter((t) => t.round && !t.mySignedAt); return me.role === 'admin' || !due.length ? '' : `<a class="notice ${due.some((t) => t.due < new Date().toLocaleDateString('en-CA')) ? 'bad' : 'warn'}" href="#/training" style="text-decoration:none">${icon('school')}<span class="grow"><b>Formación por firmar (${due.length})</b><br>${esc(due.map((t) => t.title).join(' · '))}</span>${icon('chevron_right')}</a>`; })()}
       ${!loaded ? skeleton(1, 230) : current ? cont : `<div class="card">${empty('task_alt', 'No hay trabajos abiertos', 'Lo tienes todo al día. Los trabajos nuevos aparecerán aquí.')}</div>`}
       <h3 class="section-title">Tu trabajo</h3>
       <div class="tiles-4">${tile('#/jobs?f=assigned', count('Assigned') + count('Ready to Start') + count('Draft'), 'Por empezar')}${tile('#/jobs?f=progress', count('In Progress') + count('Awaiting After Photos'), 'En curso', 'amber')}

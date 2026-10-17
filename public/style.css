@@ -702,3 +702,7 @@ dialog.viewer::backdrop { background: #000; }
 .tile-stat.red b { color: var(--bad-ink); }
 .final-q .segmented { margin-top: 10px; }
 .sig-img { display: block; max-width: 260px; width: 100%; background: #fff; border-radius: var(--radius-sm); margin: 6px 0; }
+.talk-title { font-size: 1.2941rem; margin-bottom: 10px; }
+.talk-body p { margin: 0 0 10px; }
+.talk-list { margin: 0 0 10px; padding-left: 20px; }
+.talk-list li { margin-bottom: 8px; line-height: 1.45; }

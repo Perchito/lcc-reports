@@ -9,6 +9,7 @@ import { ROUTES as JOB_ROUTES } from './job.js?v=__V__';
 import { ROUTES as LIST_ROUTES } from './lists.js?v=__V__';
 import { ROUTES as ADMIN_ROUTES } from './admin.js?v=__V__';
 import { ROUTES as QUOTE_ROUTES } from './quotes.js?v=__V__';
+import { ROUTES as TRAINING_ROUTES } from './training.js?v=__V__';
 import { home } from './home.js?v=__V__';
 import { pushState, enablePush, disablePush, refreshPush } from './push.js?v=__V__';
 
@@ -96,7 +97,7 @@ function shell() {
         <div class="side-brand">${logo(40)}<div><b>LCC Informes</b><small>${admin ? 'Administración' : 'App de campo'}</small></div></div>
         <nav class="side-nav">
           ${TABS.map(([k, h, ic, l]) => `<a href="${h}" data-tab="${k}">${icon(ic)}<span>${k === 'home' && admin ? 'Panel' : l}</span></a>`).join('')}
-          ${admin ? `<a href="#/new" data-tab="new">${icon('add_home_work')}<span>Nuevo trabajo</span></a><a href="#/team" data-tab="team">${icon('groups')}<span>Equipo</span></a><a href="#/safety" data-tab="safety">${icon('health_and_safety')}<span>Seguridad y salud</span></a>` : ''}
+          ${admin ? `<a href="#/new" data-tab="new">${icon('add_home_work')}<span>Nuevo trabajo</span></a><a href="#/team" data-tab="team">${icon('groups')}<span>Equipo</span></a><a href="#/safety" data-tab="safety">${icon('health_and_safety')}<span>Seguridad y salud</span></a><a href="#/training" data-tab="training">${icon('school')}<span>Formación</span></a>` : ''}
           <a href="#/notifications" data-tab="notifications">${icon('notifications')}<span>Notificaciones</span><b class="badge" data-badge hidden></b></a>
           <a href="#/more" data-tab="more">${icon('settings')}<span>Ajustes</span></a>
         </nav>
@@ -152,7 +153,7 @@ const CORE = [
   [/^\/sync$/, () => syncScreen()],
   [/^\/notifications$/, () => notificationsScreen()],
 ];
-const ROUTES = [...CORE, ...LIST_ROUTES, ...JOB_ROUTES, ...QUOTE_ROUTES, ...ADMIN_ROUTES];
+const ROUTES = [...CORE, ...LIST_ROUTES, ...JOB_ROUTES, ...QUOTE_ROUTES, ...ADMIN_ROUTES, ...TRAINING_ROUTES];
 
 // a small in-app history so "Back" returns where you came from, or to the screen's parent
 const stack = JSON.parse(sessionStorage.getItem('lcc-stack') || '[]');
@@ -242,7 +243,7 @@ function more() {
         <div><h2>${esc(me.name)}</h2><p>${esc(me.email)}</p><span class="role-tag">${admin ? 'Administrador' : 'Empleado'}</span></div></section>
       ${admin ? `<h3 class="section-title">Administración</h3><div class="list-card">
         ${row('#/home', 'space_dashboard', 'Panel de administración')}${row('#/jobs', 'work_outline', 'Gestión de trabajos')}
-        ${row('#/new', 'add_home_work', 'Nuevo trabajo')}${row('#/team', 'groups', 'Equipo')}${row('#/safety', 'health_and_safety', 'Seguridad y salud (informe diario)')}</div>` : ''}
+        ${row('#/new', 'add_home_work', 'Nuevo trabajo')}${row('#/team', 'groups', 'Equipo')}${row('#/safety', 'health_and_safety', 'Seguridad y salud (informe diario)')}${row('#/training', 'school', 'Formación (toolbox talks)')}</div>` : `<h3 class="section-title">Seguridad</h3><div class="list-card">${row('#/training', 'school', 'Formación (toolbox talks)')}</div>`}
       <h3 class="section-title">Aplicación</h3>
       <div class="list-card">
         ${row('#/notifications', 'notifications', 'Notificaciones', '<b class="badge" data-badge hidden></b>')}
