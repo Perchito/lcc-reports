@@ -214,6 +214,8 @@ export function applyOp(j, o) {
       if (i >= 0) list[i] = { ...list[i], path: photo.path }; else list.push(photo);
       break;
     }
+    case 'safetyPhoto': if (!j.safety?.doneAt) Object.assign((j.safety ??= {}), { [`${b.slot}Path`]: `local:${o.blobKey}`, [`${b.slot}By`]: me?.email, [`${b.slot}At`]: new Date(o.seq).toISOString() }); break;
+    case 'safety': if (!j.safety?.doneAt) Object.assign((j.safety ??= {}), { ppe: b.ppe, doneBy: me?.email, doneAt: new Date(o.seq).toISOString() }); break;
     case 'condEdit': { const p = j.condition?.find((x) => x.id === b.xid); if (p) Object.assign(p, b.fields); break; }
     case 'condDel': if (j.condition) j.condition = j.condition.filter((x) => x.id !== b.xid); break;
     case 'condSign': if (!j.conditionSign?.signedAt && !(b.remote && j.conditionSign?.signCode)) j.conditionSign = b.remote
@@ -252,6 +254,8 @@ export const photo = (jobId, room, type, blob) => enqueue({ id: `slot:${jobId}:$
 export const deletePhoto = (jobId, room, type) => enqueue({ id: `slot:${jobId}:${slug(room)}:${type}`, jobId, kind: 'photoDel', body: { room, type } });
 export const photoExtra = (jobId, room, type, blob, xid = rid()) => enqueue({ id: `xslot:${jobId}:${slug(room)}:${type}:${xid}`, jobId, kind: 'photoX', body: { room, type, xid } }, blob);
 export const deletePhotoExtra = (jobId, room, type, xid) => enqueue({ id: `xslot:${jobId}:${slug(room)}:${type}:${xid}`, jobId, kind: 'photoXDel', body: { room, type, xid } });
+export const safetyPhoto = (jobId, slot, blob) => enqueue({ id: `safety:${jobId}:${slot}`, jobId, kind: 'safetyPhoto', body: { slot } }, blob);
+export const finishSafety = (jobId, ppe) => enqueue({ id: `safety:${jobId}:done`, jobId, kind: 'safety', body: { ppe } });
 export const addRoom = (jobId, name) => enqueue({ id: `room:${jobId}:${slug(name)}:${rid()}`, jobId, kind: 'roomAdd', body: { name } });
 export const renameRoom = (jobId, from, to) => enqueue({ id: `room:${jobId}:${slug(from)}:${rid()}`, jobId, kind: 'roomRen', body: { from, to } });
 export const removeRoom = (jobId, name) => enqueue({ id: `room:${jobId}:${slug(name)}:${rid()}`, jobId, kind: 'roomDel', body: { name } });
@@ -309,6 +313,10 @@ async function send(o) {
     case 'condX':
       if (!blob) throw Object.assign(new Error('La foto ya no está en este móvil — vuelve a hacerla'), { status: 410 });
       return api(`${base}/condition/${b.xid}?area=${enc(b.area || '')}&note=${enc(b.note || '')}`, { method: 'PUT', raw: blob });
+    case 'safetyPhoto':
+      if (!blob) throw Object.assign(new Error('La foto ya no está en este móvil — vuelve a hacerla'), { status: 410 });
+      return api(`${base}/safety/${b.slot}`, { method: 'PUT', raw: blob });
+    case 'safety': return api(`${base}/safety`, { method: 'POST', body: b });
     case 'condEdit': return api(`${base}/condition/${b.xid}`, { method: 'PATCH', body: b.fields });
     case 'condDel': return api(`${base}/condition/${b.xid}`, { method: 'DELETE' });
     case 'condSign': return api(`${base}/condition-sign`, { method: 'POST', body: b });

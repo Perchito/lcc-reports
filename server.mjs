@@ -6,7 +6,7 @@ import {
   loginBlocked, loginFailed, loginOk,
 } from './lib/auth.mjs';
 import { homeStorage } from './lib/home-storage.mjs';
-import { MATERIAL_AREAS, MAX_ROOMS, STATUS, tr, newJob, cleanPatch, materialItem, problemItem, changeItem, signature, isSigned, CODE_RE, newCode, CHANGE_DECLARATION, slug, roomsOf, findRoom, isQuote, newQuote, cleanQuotePatch, conditionMeta, conditionLocked, MAX_CONDITION, CONDITION_DECLARATION, cleanRooms, photosOf, dropMain, MAX_EXTRA } from './lib/jobs.mjs';
+import { MATERIAL_AREAS, MAX_ROOMS, STATUS, tr, newJob, cleanPatch, materialItem, problemItem, changeItem, signature, isSigned, CODE_RE, newCode, CHANGE_DECLARATION, slug, roomsOf, findRoom, isQuote, newQuote, cleanQuotePatch, conditionMeta, conditionLocked, MAX_CONDITION, PPE, SAFETY_PHOTOS, safetyDone, isStarted, CONDITION_DECLARATION, cleanRooms, photosOf, dropMain, MAX_EXTRA } from './lib/jobs.mjs';
 import { reportPdf, pdfFilename } from './lib/pdf.mjs';
 import { sendEmail, emailConfigured } from './lib/mailer.mjs';
 import { pushRoutes, notify } from './lib/push.mjs';
@@ -193,6 +193,7 @@ app.patch('/api/jobs/:id', requireUser(), async (req, res) => {
     return res.json(await update(req, 'data || $2::jsonb', [cleanQuotePatch(req.body)]));
   }
   const patch = cleanPatch(req.body, req.user.role);
+  if (req.user.role !== 'admin' && patch.status && isStarted(patch) && !isStarted(current) && !safetyDone(current)) throw bad(409, 'Completa el control de seguridad antes de empezar el trabajo');
   const now = new Date().toISOString();
   if (patch.status === STATUS.adminReviewed) patch.reviewedAt = now;
   if ('assignedTo' in patch) patch.assignedAt = patch.assignedTo ? now : null;
@@ -447,6 +448,28 @@ app.delete('/api/jobs/:id/changes/:cid', requireUser(), async (req, res) => {
     if (!c) return; // already gone
     if (isSigned(c)) throw bad(409, 'El cliente ya lo ha firmado — no se puede quitar');
     data.changes = data.changes.filter((x) => x !== c);
+  }));
+});
+
+// ── health & safety check before the job starts (once per job); photos can be retaken until it's done ──
+app.put('/api/jobs/:id/safety/:slot', requireUser(), jpeg, async (req, res) => {
+  const k = req.params.slot;
+  if (!SAFETY_PHOTOS.includes(k)) throw bad(404, 'Foto de seguridad no válida');
+  if (!isImage(req.body)) throw bad(400, 'Envía una foto JPEG o PNG');
+  if (safetyDone(await loadJob(req))) throw bad(409, 'El control de seguridad ya está hecho');
+  const file = `safety_${k.toLowerCase()}.jpg`;
+  await storage.put(`jobs/${req.params.id}/${file}`, req.body, req.headers['content-type']);
+  res.json(await withJob(req, (data) => {
+    Object.assign((data.safety ??= {}), { [`${k}Path`]: fileUrl(req.params.id, file), [`${k}By`]: req.user.email, [`${k}At`]: new Date().toISOString() });
+  }));
+});
+app.post('/api/jobs/:id/safety', requireUser(), async (req, res) => {
+  const ticked = Array.isArray(req.body?.ppe) ? req.body.ppe : [];
+  res.json(await withJob(req, (data) => {
+    if (safetyDone(data)) return; // resend
+    if (PPE.some((p) => !ticked.includes(p))) throw bad(400, 'Marca todo el equipo de protección');
+    if (SAFETY_PHOTOS.some((k) => !data.safety?.[`${k}Path`])) throw bad(400, 'Faltan las fotos del botiquín');
+    Object.assign(data.safety, { ppe: [...PPE], doneBy: req.user.email, doneAt: new Date().toISOString() });
   }));
 });
 

@@ -9,7 +9,7 @@ import * as store from './store.js?v=__V__';
 import { reassignSheet } from './admin.js?v=__V__';
 import {
   PHOTO_ROOMS, MATERIAL_AREAS, MATERIAL_STATUSES, MATERIAL_UNITS, PROBLEM_CATEGORIES, CHANGE_TYPES, CHANGE_DECLARATION, STATUS,
-  address, progress, nextStep, reviewChecklist, changesSummary, isSigned, money, en, enLine, displayStatus, photoCount, materialList, isOpen, roomsOf, slug, MAX_ROOMS, photosOf, extrasOf,
+  PPE, SAFETY_PHOTOS, safetyDone, needsSafety, isStarted, address, progress, nextStep, reviewChecklist, changesSummary, isSigned, money, en, enLine, displayStatus, photoCount, materialList, isOpen, roomsOf, slug, MAX_ROOMS, photosOf, extrasOf,
 } from './jobs.mjs?v=__V__';
 
 const enc = encodeURIComponent;
@@ -92,11 +92,13 @@ async function details(id, q, me) {
   const j = await getJob(id);
   const admin = me.role === 'admin', p = progress(j), waiting = store.pending(id).length;
   const base = `#/jobs/${esc(id)}`, ns = nextStep(j, me.role);
-  const step = (href, ic, title, value, state) => `<a class="flow-card st-${state}" href="${href}">
+  const stepCard = (href, ic, title, value, state) => `<a class="flow-card st-${state}" href="${href}">
       <span class="flow-ic">${icon(state === 'done' ? 'check_circle' : state === 'warn' ? 'warning' : state === 'part' ? 'timelapse' : ic)}</span>
       <span class="grow"><b>${title}</b><small>${value}</small></span>${icon('chevron_right', 'chev')}</a>`;
   const mats = materialList(j).length, probs = j.problems?.length || 0, chs = j.changes?.length || 0;
   const reportDone = !!j.submittedAt || j.status === STATUS.adminReviewed;
+  const gated = !admin && needsSafety(j); // the worker's first stop is the safety check, every other step waits for it
+  const step = (href, ...rest) => stepCard(gated ? `${base}/safety` : href, ...rest);
   let footer = '';
   if (admin && !j.assignedTo && isOpen(j)) footer = `<a class="btn btn-primary btn-lg" href="${base}/edit">${icon('person_add')} Asignar empleado</a>`;
   else if (ns.step === 'start' && !admin) footer = `<button class="btn btn-primary btn-lg" id="start">${icon('play_arrow')} Empezar trabajo</button>`;
@@ -116,6 +118,7 @@ async function details(id, q, me) {
       ${j.fromQuote ? `<p class="notice">${icon('request_quote')}<span>Viene del presupuesto <a href="#/quotes/${esc(j.fromQuote)}">${esc(j.fromQuote)}</a>${j.price != null ? ` · ${esc(money(j.price))}` : ''}</span></p>` : ''}
       ${j.work ? `<section class="card info-card"><h3 class="label">Trabajo acordado</h3><p class="pre">${esc(j.work)}</p></section>` : ''}
       <section class="flow">
+        ${safetyDone(j) || !isStarted(j) ? stepCard(`${base}/safety`, 'health_and_safety', 'Seguridad', safetyDone(j) ? `Hecho · ${fmtDate(j.safety.doneAt)}` : 'EPI y botiquín — antes de empezar', safetyDone(j) ? 'done' : 'todo') : ''}
         ${j.condition?.length || j.conditionSign ? step(`${base}/condition`, 'house', 'Estado de la vivienda', `${j.condition?.length || 0} fotos · ${j.conditionSign?.signedAt ? 'firmado' : j.conditionSign ? 'esperando firma' : 'sin firmar'}`, j.conditionSign?.signedAt ? 'done' : 'part') : ''}
         ${step(`${base}/photos/before`, 'photo_camera', 'Fotos antes', p.photos ? `${p.before} / ${p.photos} hechas` : 'Añade zonas de fotos', p.photos && p.before === p.photos ? 'done' : p.before ? 'part' : 'todo')}
         ${step(`${base}/materials`, 'inventory_2', 'Materiales', mats ? `${mats} material${mats === 1 ? '' : 'es'}` : 'Ninguno anotado aún', mats ? 'done' : 'todo')}
@@ -137,7 +140,7 @@ async function details(id, q, me) {
     mount(v, f) {
       let shown = false;
       on(v, '#eye', 'click', (e, b) => { shown = !shown; $('#pin', v).textContent = shown ? j.keySafePin : '••••'; b.innerHTML = `${icon(shown ? 'visibility_off' : 'visibility')} ${shown ? 'Ocultar' : 'Ver'}`; b.setAttribute('aria-pressed', shown); });
-      on(f, '#start', 'click', () => startJob(j));
+      on(f, '#start', 'click', () => (needsSafety(j) ? go(`${base}/safety`) : startJob(j)));
       on(v, '#reassign', 'click', () => reassignSheet(j));
       on(document, '#menu', 'click', () => sheet(`<h2>${esc(line1(j))}</h2><div class="list-card">
         <button class="list-row" id="reassign2" data-close>${icon('person')}<span>${j.assignedTo ? 'Reasignar empleado' : 'Asignar empleado'}</span></button>
@@ -150,10 +153,11 @@ async function details(id, q, me) {
   };
 }
 
-function startJob(j) {
+function startJob(j, replace) {
   if ([STATUS.draft, STATUS.readyToStart, STATUS.assigned].includes(j.status)) store.patch(j.id, { status: STATUS.workInProgress });
   toast('Trabajo empezado');
-  go(`#/jobs/${enc(j.id)}/photos/before`);
+  const to = `#/jobs/${enc(j.id)}/photos/before`;
+  if (replace) location.replace(to); else go(to);
 }
 
 // ── guided photo capture (the job's own photo spots, before or after) ──
@@ -410,6 +414,55 @@ export const problemCard = (j, p) => `<article class="card problem-card">
   ${p.photoPath ? `<button class="thumb" data-photo="${esc(p.photoPath)}" aria-label="Ver foto del problema">${photoImg(p.photoPath)}</button>` : ''}
 </article>`;
 const wireProblemPhotos = (v) => on(v, '[data-photo]', 'click', (e, b) => viewer([{ src: b.dataset.photo, label: 'Foto del problema' }]));
+
+// ── health & safety before starting: PPE ticked + first-aid kit photos ──
+const SAFETY_SHOTS = { kit: ['medical_services', 'Foto del botiquín', 'El botiquín cerrado, que se vea bien.'], kitOpen: ['medical_information', 'Foto del botiquín abierto', 'Ábrelo y comprueba que tiene todo lo necesario: tiritas, vendas, gasas, guantes, toallitas, tijeras…'] };
+async function safety(id, q, me) {
+  const j = await getJob(id);
+  const s = j.safety || {}, done = safetyDone(j), base = `#/jobs/${enc(id)}`;
+  if (done || isStarted(j)) {
+    return {
+      title: 'Seguridad', back: base, live: true,
+      body: done ? `<p class="lead">${esc(address(j))}</p><p class="notice">${icon('verified_user')}<span>Hecho por ${esc(s.doneBy)} · ${fmtDate(s.doneAt)}</span></p>
+        <section class="card list-card">${(s.ppe || PPE).map((p) => `<div class="check ok">${icon('check_circle')}<b>${esc(tr(p))}</b></div>`).join('')}</section>
+        ${SAFETY_PHOTOS.map((k) => `<section class="field"><span class="field-label">${SAFETY_SHOTS[k][1]}</span><div class="photo-preview">${photoImg(s[`${k}Path`], SAFETY_SHOTS[k][1])}</div></section>`).join('')}`
+        : empty('health_and_safety', 'Sin control de seguridad', 'Este trabajo empezó antes de que existiera el control de seguridad.'),
+    };
+  }
+  const admin = me.role === 'admin';
+  const key = `safety:${j.id}`, ticked = new Set((await store.getDraft(key))?.ppe || []);
+  const ready = () => PPE.every((p) => ticked.has(p)) && SAFETY_PHOTOS.every((k) => s[`${k}Path`]);
+  return {
+    title: 'Seguridad', back: base, live: true,
+    body: `<p class="lead">Antes de empezar en ${esc(line1(j))}</p>
+      ${admin ? `<p class="notice">${icon('info')}<span>El empleado lo completa en su móvil antes de empezar el trabajo.</span></p>` : ''}
+      <section class="form-section"><h3 class="section-title">Equipo de protección (EPI)</h3><p class="small muted" style="margin-bottom:10px">Marca lo que llevas puesto o tienes contigo.</p>
+        <div class="list-card">${PPE.map((p) => `<label class="list-row switch-row"><span class="grow"><b>${esc(tr(p))}</b></span>
+          <input type="checkbox" role="switch" data-ppe="${esc(p)}" ${ticked.has(p) ? 'checked' : ''} ${admin ? 'disabled' : ''}><span class="switch" aria-hidden="true"></span></label>`).join('')}</div></section>
+      ${SAFETY_PHOTOS.map((k) => { const [ic, title, hint] = SAFETY_SHOTS[k], path = s[`${k}Path`]; return `<section class="form-section"><h3 class="section-title">${title}</h3><p class="small muted" style="margin-bottom:10px">${hint}</p>
+        ${path ? `<div class="photo-preview" style="margin-bottom:10px">${photoImg(path, title)}</div>` : ''}
+        ${admin ? (path ? '' : '<p class="muted small">Todavía no hay foto.</p>') : `<div class="btn-row"><button type="button" class="btn btn-secondary" data-cam="${k}">${icon(path ? 'refresh' : 'photo_camera')} ${path ? 'Repetir foto' : 'Hacer foto'}</button><button type="button" class="btn btn-secondary" data-lib="${k}">${icon('photo_library')} Elegir</button></div>`}</section>`; }).join('')}
+      <p class="form-error" id="err" role="alert" hidden></p>`,
+    footer: admin ? '' : `<button class="btn btn-primary btn-lg" id="go">${icon('play_arrow')} Empezar trabajo</button>`,
+    mount(v, f) {
+      const shot = async (k, camera) => { const b = await pickPhoto({ camera }); if (b) store.safetyPhoto(j.id, k, b); };
+      on(v, '[data-cam]', 'click', (e, b) => shot(b.dataset.cam, true));
+      on(v, '[data-lib]', 'click', (e, b) => shot(b.dataset.lib, false));
+      on(v, '[data-ppe]', 'change', (e, c) => { c.checked ? ticked.add(c.dataset.ppe) : ticked.delete(c.dataset.ppe); store.saveDraft(key, { ppe: [...ticked] }); });
+      on(f, '#go', 'click', () => {
+        const err = $('#err', v);
+        if (!ready()) {
+          err.hidden = false;
+          err.textContent = PPE.some((p) => !ticked.has(p)) ? 'Marca todo el equipo de protección antes de empezar.' : 'Faltan las fotos del botiquín.';
+          return;
+        }
+        store.finishSafety(j.id, [...ticked]);
+        store.clearDraft(key);
+        startJob({ ...j, safety: { ...s, doneAt: new Date().toISOString() } }, true);
+      });
+    },
+  };
+}
 
 async function problems(id) {
   const j = await getJob(id);
@@ -713,6 +766,7 @@ async function reportDetail(id, q, me) {
 export const ROUTES = [
   [/^\/jobs\/([^/]+)$/, details],
   [/^\/jobs\/([^/]+)\/photos\/(before|after)$/, photos],
+  [/^\/jobs\/([^/]+)\/safety$/, safety],
   [/^\/jobs\/([^/]+)\/materials$/, materials],
   [/^\/jobs\/([^/]+)\/problems$/, problems],
   [/^\/jobs\/([^/]+)\/problems\/new$/, newProblem],
